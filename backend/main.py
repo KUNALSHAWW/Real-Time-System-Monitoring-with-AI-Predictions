@@ -19,14 +19,15 @@ from fastapi.security import HTTPBearer
 # load_dotenv()
 
 # Import routers and utilities
-# from routers import (
-#     system_metrics,
-#     anomaly_detection,
-#     predictions,
-#     authentication,
-#     incidents,
-#     ai_analysis
-# )
+from routers import (
+    system_metrics,
+    anomaly_detection,
+    predictions,
+    authentication,
+    incidents,
+    ai_analysis,
+    websocket
+)
 # from core.database import init_db, get_db
 # from core.config import settings
 # from core.state_manager import StateManager
@@ -40,7 +41,75 @@ from fastapi.security import HTTPBearer
 # Initialize state manager
 # state_manager = StateManager()
 
-app = FastAPI(title="Test App")
+app = FastAPI(
+    title="Real-Time System Monitoring with AI Predictions",
+    description="Backend API for real-time system monitoring with AI-powered predictions and anomaly detection",
+    version="1.0.0"
+)
+
+# ============================================================================
+# MIDDLEWARE
+# ============================================================================
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Update with specific origins in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ============================================================================
+# ROUTERS
+# ============================================================================
+
+# Include all routers with appropriate prefixes and tags
+app.include_router(
+    authentication.router,
+    prefix="/api/auth",
+    tags=["Authentication"]
+)
+
+app.include_router(
+    system_metrics.router,
+    prefix="/api/metrics",
+    tags=["System Metrics"]
+)
+
+app.include_router(
+    anomaly_detection.router,
+    prefix="/api/anomalies",
+    tags=["Anomaly Detection"]
+)
+
+app.include_router(
+    predictions.router,
+    prefix="/api/predictions",
+    tags=["Predictions"]
+)
+
+app.include_router(
+    incidents.router,
+    prefix="/api/incidents",
+    tags=["Incidents"]
+)
+
+app.include_router(
+    ai_analysis.router,
+    prefix="/api/ai",
+    tags=["AI Analysis"]
+)
+
+app.include_router(
+    websocket.router,
+    prefix="/api/ws",
+    tags=["WebSocket"]
+)
+
+# ============================================================================
+# HEALTH CHECK ENDPOINTS
+# ============================================================================
 
 @app.get("/health")
 async def health_check():
@@ -48,7 +117,11 @@ async def health_check():
 
 @app.get("/")
 async def root():
-    return {"message": "Main app running"}
+    return {
+        "message": "Real-Time System Monitoring API",
+        "version": "1.0.0",
+        "status": "running"
+    }
 
 
 # ============================================================================

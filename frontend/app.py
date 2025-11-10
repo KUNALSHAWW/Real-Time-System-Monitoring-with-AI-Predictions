@@ -13,6 +13,20 @@ from streamlit_option_menu import option_menu
 import requests
 import json
 from typing import Dict, Any, List
+from collections import deque
+
+# Import custom metrics fetcher
+try:
+    from metrics_fetcher import (
+        MetricsFetcher, 
+        fetch_and_cache_metrics, 
+        get_latest_metrics,
+        get_buffered_metrics_as_list
+    )
+    METRICS_MODULE_AVAILABLE = True
+except ImportError:
+    METRICS_MODULE_AVAILABLE = False
+    print("Warning: metrics_fetcher module not available")
 
 # ============================================================================
 # PAGE CONFIGURATION
@@ -26,11 +40,116 @@ st.set_page_config(
 )
 
 # ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+# Backend API configuration
+API_BASE_URL = "http://localhost:8000"
+
+# Initialize MetricsFetcher
+if METRICS_MODULE_AVAILABLE:
+    @st.cache_resource
+    def get_fetcher():
+        return MetricsFetcher(API_BASE_URL)
+    
+    fetcher = get_fetcher()
+else:
+    fetcher = None
+
+# Initialize session state for metrics history
+if 'metrics_history' not in st.session_state:
+    st.session_state['metrics_history'] = deque(maxlen=100)
+if 'backend_connected' not in st.session_state:
+    st.session_state['backend_connected'] = False
+
+# ============================================================================
+# HELPER FUNCTIONS - METRICS
+# ============================================================================
+
+def check_backend_connection() -> bool:
+    """Check if backend is accessible"""
+    try:
+        response = requests.get(f"{API_BASE_URL}/health", timeout=2)
+        return response.status_code == 200
+    except:
+        return False
+
+
+def get_realtime_metrics() -> Dict[str, Any]:
+    """Get latest metrics from backend or use fallback"""
+    if METRICS_MODULE_AVAILABLE and fetcher:
+        try:
+            metrics = fetch_and_cache_metrics(fetcher)
+            # Also store in session state
+            st.session_state['metrics_history'].append(metrics)
+            st.session_state['backend_connected'] = True
+            return metrics
+        except Exception as e:
+            st.session_state['backend_connected'] = False
+            # Don't show error, just use fallback
+    
+    # Fallback to simulated data
+    st.session_state['backend_connected'] = False
+    import random
+    return {
+        'cpu_percent': round(random.uniform(50, 80), 1),
+        'memory_percent': round(random.uniform(40, 70), 1),
+        'disk_percent': round(random.uniform(60, 85), 1),
+        'network_sent': int(random.uniform(100000000, 500000000)),
+        'network_recv': int(random.uniform(100000000, 500000000)),
+        'timestamp': datetime.now().isoformat()
+    }
+
+
+def get_metrics_history() -> pd.DataFrame:
+    """Convert metrics history to DataFrame"""
+    if METRICS_MODULE_AVAILABLE:
+        metrics_list = get_buffered_metrics_as_list()
+    else:
+        metrics_list = list(st.session_state['metrics_history'])
+    
+    if len(metrics_list) == 0:
+        # Return dummy data
+        times = pd.date_range(start=datetime.now() - timedelta(minutes=10), periods=20, freq='30s')
+        return pd.DataFrame({
+            'timestamp': times,
+            'cpu_percent': np.random.normal(65, 15, 20).clip(0, 100),
+            'memory_percent': np.random.normal(55, 12, 20).clip(0, 100),
+            'disk_percent': np.random.normal(72, 5, 20).clip(0, 100)
+        })
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(metrics_list)
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    return df
+
+# ============================================================================
 # SIDEBAR NAVIGATION
 # ============================================================================
 
 with st.sidebar:
     st.image("https://via.placeholder.com/250x50?text=System+Monitor", use_column_width=True)
+    
+    # Connection status - check actual backend connection
+    backend_alive = check_backend_connection()
+    
+    if backend_alive and st.session_state.get('backend_connected', False):
+        st.success("🟢 Connected to Backend")
+    elif backend_alive:
+        st.info("🟡 Backend Available (fetching...)")
+    elif METRICS_MODULE_AVAILABLE:
+        st.warning("� Backend Offline (using demo data)")
+    else:
+        st.error("� Demo Mode (No backend)")
+    
+    # Show backend URL
+    with st.expander("Backend Info"):
+        st.code(f"API: {API_BASE_URL}")
+        if st.button("Test Connection"):
+            if check_backend_connection():
+                st.success("✅ Backend is reachable!")
+            else:
+                st.error("❌ Cannot reach backend")
     
     selected = option_menu(
         menu_title="Navigation",
@@ -119,13 +238,43 @@ def create_gauge_chart(value: float, max_value: float, title: str, unit: str = "
 if selected == "Dashboard":
     st.title("📊 Real-Time System Monitoring Dashboard")
     
+    # Get real-time metrics
+    metrics = get_realtime_metrics()
+    
     # Key metrics
     col1, col2, col3, col4 = st.columns(4)
     
-    create_metric_card(col1, "CPU Usage", "67%", "+5%", "⚙️")
-    create_metric_card(col2, "Memory", "45%", "-2%", "💾")
-    create_metric_card(col3, "Disk", "72%", "+1%", "💿")
-    create_metric_card(col4, "Network", "234 Mbps", "+12%", "🌐")
+    create_metric_card(
+        col1, 
+        "CPU Usage", 
+        f"{metrics.get('cpu_percent', 0):.1f}%", 
+        "+5%", 
+        "⚙️"
+    )
+    create_metric_card(
+        col2, 
+        "Memory", 
+        f"{metrics.get('memory_percent', 0):.1f}%", 
+        "-2%", 
+        "💾"
+    )
+    create_metric_card(
+        col3, 
+        "Disk", 
+        f"{metrics.get('disk_percent', 0):.1f}%", 
+        "+1%", 
+        "💿"
+    )
+    
+    # Calculate network speed (convert bytes to Mbps)
+    network_sent_mb = metrics.get('network_sent', 0) / (1024 * 1024)
+    create_metric_card(
+        col4, 
+        "Network (Sent)", 
+        f"{network_sent_mb:.1f} MB", 
+        "+12%", 
+        "🌐"
+    )
     
     st.divider()
     
@@ -133,39 +282,54 @@ if selected == "Dashboard":
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("CPU Utilization Over Time")
+        st.subheader("CPU Utilization Over Time (Real-time)")
         
-        # Generate sample data
-        times = pd.date_range(start='2024-11-10 00:00', periods=100, freq='5min')
-        cpu_data = pd.DataFrame({
-            'time': times,
-            'cpu': np.random.normal(65, 15, 100).clip(0, 100)
-        })
+        # Get historical data from WebSocket
+        df_history = get_metrics_history()
         
-        fig = create_line_chart(cpu_data, "CPU %", "time", "cpu")
-        st.plotly_chart(fig, use_container_width=True)
+        if not df_history.empty and 'cpu_percent' in df_history.columns:
+            fig = create_line_chart(df_history, "CPU %", "timestamp", "cpu_percent")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Waiting for real-time data...")
     
     with col2:
-        st.subheader("System Health")
+        st.subheader("Memory & Disk Usage (Real-time)")
         
-        health_data = {
-            'Component': ['CPU', 'Memory', 'Disk', 'Network', 'Database'],
-            'Health': [92, 85, 78, 88, 95]
-        }
-        df_health = pd.DataFrame(health_data)
+        df_history = get_metrics_history()
         
-        fig = px.bar(
-            df_health,
-            x='Component',
-            y='Health',
-            title="Component Health Score",
-            template="plotly_dark",
-            color='Health',
-            color_continuous_scale='Greens'
-        )
-        
-        fig.update_layout(height=400, margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig, use_container_width=True)
+        if not df_history.empty:
+            fig = go.Figure()
+            
+            if 'memory_percent' in df_history.columns:
+                fig.add_trace(go.Scatter(
+                    x=df_history['timestamp'],
+                    y=df_history['memory_percent'],
+                    mode='lines',
+                    name='Memory',
+                    line=dict(color='blue')
+                ))
+            
+            if 'disk_percent' in df_history.columns:
+                fig.add_trace(go.Scatter(
+                    x=df_history['timestamp'],
+                    y=df_history['disk_percent'],
+                    mode='lines',
+                    name='Disk',
+                    line=dict(color='green')
+                ))
+            
+            fig.update_layout(
+                title="Memory & Disk %",
+                template="plotly_dark",
+                height=400,
+                margin=dict(l=0, r=0, t=30, b=0),
+                hovermode='x unified'
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Waiting for real-time data...")
     
     st.divider()
     
@@ -495,6 +659,12 @@ elif selected == "AI Analysis":
 # ============================================================================
 
 if auto_refresh:
-    import time
-    time.sleep(refresh_interval)
-    st.rerun()
+    # Use streamlit-autorefresh if available
+    try:
+        from streamlit_autorefresh import st_autorefresh
+        count = st_autorefresh(interval=refresh_interval * 1000, key="metrics_refresh")
+    except ImportError:
+        # Fallback to time.sleep and rerun
+        import time
+        time.sleep(refresh_interval)
+        st.rerun()

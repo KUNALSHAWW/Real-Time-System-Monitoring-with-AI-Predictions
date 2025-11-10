@@ -7,6 +7,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 from core.logger import get_logger
+import psutil
 
 logger = get_logger("metrics")
 router = APIRouter()
@@ -103,3 +104,33 @@ async def post_custom_metrics(metric_name: str, value: float):
         "metric_name": metric_name,
         "value": value
     }
+
+
+@router.get("/current")
+async def get_current_metrics():
+    """
+    Get current real-time system metrics
+    Returns current CPU, memory, disk, and network metrics
+    """
+    try:
+        # Collect real-time metrics using psutil
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        network = psutil.net_io_counters()
+        
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "cpu_percent": round(cpu_percent, 2),
+            "memory_percent": round(memory.percent, 2),
+            "disk_percent": round(disk.percent, 2),
+            "network_sent": network.bytes_sent,
+            "network_recv": network.bytes_recv,
+            "memory_total": memory.total,
+            "memory_used": memory.used,
+            "disk_total": disk.total,
+            "disk_used": disk.used
+        }
+    except Exception as e:
+        logger.error(f"Error fetching current metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching metrics: {str(e)}")
