@@ -2273,36 +2273,6 @@ pre-commit install
 
 *Tested on: 4-core CPU, 8GB RAM, SSD storage*
 
-## 🗺️ Roadmap
-
-### Q1 2024
-- [x] AI-powered fix suggestions
-- [x] Multi-LLM integration (GROQ/Ollama/HF)
-- [x] Enhanced incident management
-- [ ] Mobile app (React Native)
-- [ ] Slack/Teams bot integration
-
-### Q2 2024
-- [ ] GPU support for ML inference
-- [ ] Custom metric plugins API
-- [ ] Advanced forecasting (Prophet, ARIMA)
-- [ ] Cost optimization module
-- [ ] Multi-cloud support (AWS/GCP/Azure)
-
-### Q3 2024
-- [ ] Distributed tracing integration
-- [ ] Advanced RBAC with SSO
-- [ ] Capacity planning module
-- [ ] SLA monitoring & reporting
-- [ ] Automated remediation actions
-
-### Q4 2024
-- [ ] Kubernetes operator
-- [ ] Service mesh integration
-- [ ] ML model marketplace
-- [ ] White-label support
-- [ ] Enterprise features
-
 ## 📜 License
 
 This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
