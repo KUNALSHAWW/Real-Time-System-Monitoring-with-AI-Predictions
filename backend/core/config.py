@@ -6,12 +6,17 @@ Centralizes all settings from environment variables with validation
 import os
 from typing import List, Optional
 from functools import lru_cache
-from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic import field_validator, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings from environment variables"""
+    
+    model_config = SettingsConfigDict(
+        case_sensitive=True,
+        extra='ignore'  # Ignore extra environment variables
+    )
     
     # ========================================================================
     # ENVIRONMENT & DEBUG
@@ -113,18 +118,19 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
     JWT_EXPIRATION_HOURS: int = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
     
-    # CORS
+    # CORS - Using computed field to avoid Pydantic parsing issues
     CORS_ORIGINS_STR: str = os.getenv("CORS_ORIGINS_STR", "http://localhost:8501")
-    CORS_ORIGINS: List[str] = []
     
     def model_post_init(self, __context):
-        """Post-initialization hook to set CORS origins from string"""
-        self.CORS_ORIGINS = [origin.strip() for origin in self.CORS_ORIGINS_STR.split(",")]
+        """Post-initialization hook - Pydantic v2 style"""
+        pass
     
     @property
     def cors_origins(self) -> List[str]:
-        """Get CORS origins"""
-        return self.CORS_ORIGINS
+        """Parse CORS origins from comma-separated string"""
+        if self.CORS_ORIGINS_STR == "*":
+            return ["*"]
+        return [origin.strip() for origin in self.CORS_ORIGINS_STR.split(",") if origin.strip()]
     
     # ========================================================================
     # FEATURE FLAGS
