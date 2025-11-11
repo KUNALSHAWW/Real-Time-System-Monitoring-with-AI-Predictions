@@ -221,9 +221,24 @@ st.markdown("""
 # CONFIGURATION & VALIDATION
 # ============================================================================
 
-# Backend API configuration - Use environment variable for Hugging Face Spaces
+# Backend API configuration - normalized for deployment environments
 import os
-API_BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+
+
+def normalize_api_url(raw_url: str, fallback: str = "http://localhost:8000") -> str:
+    """Ensure API URL includes scheme and has no trailing slash."""
+    url = (raw_url or fallback).strip()
+    if not url:
+        return fallback
+    if not url.startswith(("http://", "https://")):
+        # Default to https for production deployments like Render
+        url = f"https://{url}"
+    # Remove trailing slash to keep endpoint joining consistent
+    return url.rstrip("/")
+
+
+API_BASE_URL = normalize_api_url(os.getenv("BACKEND_URL", "http://localhost:8000"))
+WS_BASE_URL = API_BASE_URL.replace("https://", "wss://").replace("http://", "ws://")
 EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 def validate_email(email: str) -> bool:
@@ -368,8 +383,11 @@ def check_backend_connection() -> bool:
     """Check if backend is accessible"""
     try:
         response = requests.get(f"{API_BASE_URL}/health", timeout=2)
-        return response.status_code == 200
-    except:
+        is_healthy = response.status_code == 200
+        st.session_state['backend_connected'] = is_healthy
+        return is_healthy
+    except requests.RequestException as exc:
+        st.session_state['backend_connected'] = False
         return False
 
 def get_realtime_metrics() -> Dict[str, Any]:
@@ -523,6 +541,8 @@ with st.sidebar:
         status_html = '<span class="status-indicator status-critical"></span>Using Demo Mode'
         st.markdown(f'<div style="padding: 10px; background: rgba(244, 67, 54, 0.1); border-radius: 10px; margin: 10px 0;">{status_html}</div>', unsafe_allow_html=True)
     
+    st.caption(f"Backend API: {API_BASE_URL}")
+
     st.divider()
     
     # Navigation menu

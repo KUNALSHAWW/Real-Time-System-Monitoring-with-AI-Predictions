@@ -12,11 +12,21 @@ from collections import deque
 import time
 
 
+def normalize_api_url(raw_url: str, fallback: str = "http://localhost:8000") -> str:
+    """Normalize API URL by ensuring scheme and stripping trailing slashes."""
+    url = (raw_url or fallback).strip()
+    if not url:
+        return fallback
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+    return url.rstrip("/")
+
+
 class MetricsFetcher:
     """Fetches real-time metrics from backend API"""
     
     def __init__(self, api_base_url: str = "http://localhost:8000"):
-        self.api_base_url = api_base_url
+        self.api_base_url = normalize_api_url(api_base_url)
         
     def get_current_metrics(self) -> Dict[str, Any]:
         """Fetch current system metrics from API"""
