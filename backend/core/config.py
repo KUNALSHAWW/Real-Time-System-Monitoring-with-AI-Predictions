@@ -172,11 +172,6 @@ class Settings(BaseSettings):
     
     PROMETHEUS_PORT: int = int(os.getenv("PROMETHEUS_PORT", "9090"))
     ENABLE_METRICS: bool = os.getenv("ENABLE_METRICS", "true").lower() == "true"
-    
-    class Config:
-        env_file = "../.env"
-        case_sensitive = True
-        extra = "ignore"
 
 
 @lru_cache()
