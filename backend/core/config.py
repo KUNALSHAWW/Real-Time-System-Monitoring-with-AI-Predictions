@@ -114,7 +114,7 @@ class Settings(BaseSettings):
     JWT_EXPIRATION_HOURS: int = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
     
     # CORS
-    CORS_ORIGINS_STR: str = "http://localhost:8501"
+    CORS_ORIGINS_STR: str = os.getenv("CORS_ORIGINS_STR", "http://localhost:8501")
     CORS_ORIGINS: List[str] = []
     
     def model_post_init(self, __context):
