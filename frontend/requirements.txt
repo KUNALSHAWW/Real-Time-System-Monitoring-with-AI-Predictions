@@ -3,61 +3,35 @@
 # ============================================================================
 
 # Frontend Framework
-streamlit
-streamlit-option-menu
-streamlit-aggrid
-streamlit-metrics
+streamlit>=1.28.0
+streamlit-option-menu>=0.3.6
 
-# Advanced Forecasting
-prophet
-statsmodels
+# Advanced Forecasting (Optional - comment out if build fails)
+# prophet
+# statsmodels
 
 # WebSocket support
-websockets
+websockets>=12.0
 
 # Data Processing
-pandas==2.1.3
-numpy==1.26.2
-polars==0.19.12
+pandas>=2.0.0
+numpy>=1.24.0
 
 # Visualization
-plotly==5.18.0
-altair==5.1.2
-matplotlib==3.8.2
-seaborn==0.13.0
-bokeh==3.3.3
-
-# Real-time Updates
-streamlit-autorefresh==0.0.1
-streamlit-ws-loader==0.0.1
+plotly>=5.18.0
+altair>=5.0.0
+matplotlib>=3.8.0
+seaborn>=0.13.0
 
 # API Communication
-requests==2.31.0
-httpx
-aiohttp==3.9.1
-
-# State Management
-streamlit-session-state==0.0.2
+requests>=2.31.0
+httpx>=0.25.0
 
 # Authentication
-streamlit-authenticator==0.2.3
-PyJWT==2.8.1
-cryptography==41.0.7
+PyJWT>=2.8.0
+cryptography>=41.0.0
 
 # Utilities
-python-dotenv==1.0.0
-python-dateutil==2.8.2
-pytz==2023.3
-
-# Geospatial (for system location mapping)
-folium==0.14.0
-streamlit-folium==0.18
-
-# Data export
-openpyxl==3.11.0
-python-docx==0.8.11
-
-# Development
-black==23.12.0
-flake8==6.1.0
-isort==5.13.2
+python-dotenv>=1.0.0
+python-dateutil>=2.8.0
+pytz>=2023.3
