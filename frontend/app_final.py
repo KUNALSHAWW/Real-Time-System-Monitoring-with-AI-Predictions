@@ -27,6 +27,9 @@ from email.mime.multipart import MIMEMultipart
 import re
 import hashlib
 import time
+import asyncio
+import websockets
+import threading
 
 # ============================================================================
 # PAGE CONFIGURATION
@@ -279,7 +282,11 @@ def init_session_state():
         },
         'dashboard_view': 'overview',  # overview, detailed, compact
         'chart_animation': True,
-        'first_visit': True
+        'first_visit': True,
+        'anomalies_detected': [],
+        'ai_analysis_cache': {},
+        'websocket_enabled': False,
+        'latest_metrics': None,
     }
     
     for key, value in defaults.items():
@@ -494,6 +501,54 @@ System Health Monitor
             """
             NotificationManager.send_email(st.session_state['user_email'], subject, body)
 
+
+def fetch_anomaly_detection(metrics: Dict[str, float]) -> Dict[str, Any]:
+    """Call backend anomaly detection API"""
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/api/anomaly/detect",
+            json=metrics,
+            timeout=5
+        )
+        if response.status_code == 200:
+            return response.json()
+        return {}
+    except Exception as e:
+        st.warning(f"Anomaly detection unavailable: {e}")
+        return {}
+
+
+def fetch_ai_analysis(metrics: Dict[str, float]) -> str:
+    """Get AI analysis from backend"""
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/api/ai/analyze",
+            json=metrics,
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('analysis', 'Analysis unavailable')
+        return "AI analysis unavailable"
+    except Exception as e:
+        return f"AI analysis error: {e}"
+
+
+def fetch_anomaly_explanation(anomaly_data: Dict[str, Any]) -> str:
+    """Get AI explanation for detected anomaly"""
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/api/ai/anomaly-explanation",
+            json=anomaly_data,
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('explanation', 'No explanation available')
+        return "Explanation unavailable"
+    except Exception as e:
+        return f"Error getting explanation: {e}"
+
 def show_welcome_tour():
     """Show welcome tour for first-time users"""
     if st.session_state.get('first_visit', True):
@@ -548,8 +603,8 @@ with st.sidebar:
     # Navigation menu
     selected = option_menu(
         menu_title="Main Menu",
-        options=["Dashboard", "Metrics", "Alerts", "Predictions", "Settings"],
-        icons=["speedometer2", "graph-up", "bell", "crystal-ball", "gear"],
+        options=["Dashboard", "Metrics", "Alerts", "Predictions", "AI Insights", "Settings"],
+        icons=["speedometer2", "graph-up", "bell", "crystal-ball", "robot", "gear"],
         menu_icon="list",
         default_index=0,
         styles={
@@ -762,6 +817,63 @@ if selected == "Dashboard":
             help="Total data sent over network"
         )
         st.progress(min(network_mb / 1000, 1.0))
+    
+    # Real-time Anomaly Detection
+    st.divider()
+    st.markdown("### 🔍 Real-Time Anomaly Detection")
+    
+    if st.session_state['backend_connected']:
+        # Fetch anomaly detection results from backend
+        anomaly_result = fetch_anomaly_detection(metrics)
+        
+        if anomaly_result and 'is_anomaly' in anomaly_result:
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                if anomaly_result['is_anomaly']:
+                    severity = anomaly_result.get('severity', 'medium')
+                    severity_icons = {
+                        'critical': '🔴',
+                        'high': '🟠',
+                        'medium': '🟡',
+                        'low': '🟢'
+                    }
+                    severity_colors = {
+                        'critical': '#F44336',
+                        'high': '#FF9800',
+                        'medium': '#FFC107',
+                        'low': '#8BC34A'
+                    }
+                    
+                    st.error(f"""
+                    {severity_icons.get(severity, '⚠️')} **Anomaly Detected!** (Severity: {severity.upper()})
+                    
+                    - **Metric:** {anomaly_result.get('metric_name', 'System')}
+                    - **Z-Score:** {anomaly_result.get('z_score', 0):.2f}
+                    - **Mean:** {anomaly_result.get('mean', 0):.2f}
+                    - **Std Dev:** {anomaly_result.get('std_dev', 0):.2f}
+                    """)
+                    
+                    # Store anomaly in session state
+                    if anomaly_result not in st.session_state['anomalies_detected']:
+                        st.session_state['anomalies_detected'].insert(0, {
+                            **anomaly_result,
+                            'timestamp': datetime.now()
+                        })
+                        if len(st.session_state['anomalies_detected']) > 50:
+                            st.session_state['anomalies_detected'] = st.session_state['anomalies_detected'][:50]
+                else:
+                    st.success("✅ All metrics are within normal ranges")
+            
+            with col2:
+                if anomaly_result['is_anomaly'] and st.button("🤖 Get AI Explanation"):
+                    with st.spinner("Analyzing anomaly..."):
+                        explanation = fetch_anomaly_explanation(anomaly_result)
+                        st.info(f"**AI Analysis:**\n\n{explanation}")
+        else:
+            st.info("Anomaly detection service is initializing... (collecting baseline data)")
+    else:
+        st.warning("⚠️ Connect to backend to enable real-time anomaly detection")
     
     st.divider()
     
@@ -1168,6 +1280,129 @@ elif selected == "Predictions":
                 st.success(f"✅ **Healthy:** CPU usage expected to remain at {avg_predicted:.1f}%")
     else:
         st.info("⏳ Not enough data for predictions yet. Keep monitoring to build history!")
+
+# ============================================================================
+# PAGE: AI INSIGHTS
+# ============================================================================
+
+elif selected == "AI Insights":
+    st.title("🤖 AI-Powered System Analysis")
+    st.caption("Get intelligent insights and recommendations powered by GROQ AI")
+    
+    if not st.session_state['backend_connected']:
+        st.warning("⚠️ Please connect to backend to use AI features")
+    else:
+        # Current System Analysis
+        st.markdown("### 📊 Current System Analysis")
+        
+        metrics = get_realtime_metrics()
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.markdown("#### Real-Time Metrics")
+            st.json({
+                "CPU Usage": f"{metrics.get('cpu_percent', 0):.1f}%",
+                "Memory Usage": f"{metrics.get('memory_percent', 0):.1f}%",
+                "Disk Usage": f"{metrics.get('disk_percent', 0):.1f}%",
+                "Network Sent": f"{metrics.get('network_sent', 0) / (1024 * 1024):.1f} MB"
+            })
+        
+        with col2:
+            if st.button("🔍 Analyze Current State", use_container_width=True, type="primary"):
+                with st.spinner("🤖 AI analyzing your system..."):
+                    analysis = fetch_ai_analysis(metrics)
+                    st.session_state['ai_analysis_cache']['current'] = {
+                        'analysis': analysis,
+                        'timestamp': datetime.now(),
+                        'metrics': metrics.copy()
+                    }
+        
+        # Display cached analysis
+        if 'current' in st.session_state['ai_analysis_cache']:
+            cached = st.session_state['ai_analysis_cache']['current']
+            st.divider()
+            st.markdown("#### 🔮 AI Analysis Results")
+            st.info(f"**Generated:** {cached['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+            st.markdown(cached['analysis'])
+        
+        st.divider()
+        
+        # Anomaly History Analysis
+        st.markdown("### 🔍 Anomaly Detection History")
+        
+        if st.session_state['anomalies_detected']:
+            st.success(f"📌 **{len(st.session_state['anomalies_detected'])} anomalies** detected in this session")
+            
+            # Display recent anomalies
+            st.markdown("#### Recent Anomalies")
+            
+            for idx, anomaly in enumerate(st.session_state['anomalies_detected'][:10]):
+                with st.expander(
+                    f"🔴 Anomaly {idx + 1} - {anomaly.get('timestamp', datetime.now()).strftime('%H:%M:%S')} "
+                    f"(Severity: {anomaly.get('severity', 'unknown').upper()})"
+                ):
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        st.markdown(f"""
+                        **Details:**
+                        - **Metric:** {anomaly.get('metric_name', 'Unknown')}
+                        - **Z-Score:** {anomaly.get('z_score', 0):.2f}
+                        - **Mean:** {anomaly.get('mean', 0):.2f}
+                        - **Std Dev:** {anomaly.get('std_dev', 0):.2f}
+                        - **Severity:** {anomaly.get('severity', 'unknown').upper()}
+                        """)
+                    
+                    with col2:
+                        if st.button(f"🤖 Explain", key=f"explain_{idx}"):
+                            with st.spinner("Getting AI explanation..."):
+                                explanation = fetch_anomaly_explanation(anomaly)
+                                st.markdown(f"**AI Explanation:**\n\n{explanation}")
+            
+            # Anomaly Statistics
+            st.divider()
+            st.markdown("#### 📈 Anomaly Statistics")
+            
+            severity_counts = {}
+            for anomaly in st.session_state['anomalies_detected']:
+                severity = anomaly.get('severity', 'unknown')
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("🔴 Critical", severity_counts.get('critical', 0))
+            with col2:
+                st.metric("🟠 High", severity_counts.get('high', 0))
+            with col3:
+                st.metric("🟡 Medium", severity_counts.get('medium', 0))
+            with col4:
+                st.metric("🟢 Low", severity_counts.get('low', 0))
+        else:
+            st.info("✅ No anomalies detected yet. Your system is running smoothly!")
+        
+        st.divider()
+        
+        # Custom Analysis Query
+        st.markdown("### 💬 Ask AI About Your System")
+        
+        with st.form("custom_ai_query"):
+            query = st.text_area(
+                "What would you like to know?",
+                placeholder="e.g., Why is my CPU usage high? What can I do to improve performance?",
+                help="Ask specific questions about your system metrics"
+            )
+            
+            submitted = st.form_submit_button("🚀 Ask AI", use_container_width=True, type="primary")
+            
+            if submitted and query:
+                with st.spinner("🤖 AI is thinking..."):
+                    # For custom queries, we'll use the analysis endpoint with current metrics
+                    analysis = fetch_ai_analysis(metrics)
+                    st.markdown("#### 🤖 AI Response:")
+                    st.success(analysis)
+                    st.caption(f"Based on current metrics at {datetime.now().strftime('%H:%M:%S')}")
 
 # ============================================================================
 # PAGE: SETTINGS
