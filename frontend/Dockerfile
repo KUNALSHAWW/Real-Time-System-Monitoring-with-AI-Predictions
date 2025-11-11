@@ -31,4 +31,4 @@ RUN mkdir -p ~/.streamlit && \
 
 # Run Streamlit using PORT environment variable
 # Render will automatically set this to 10000
-CMD streamlit run app_final.py --server.port=${PORT} --server.address=0.0.0.0
+CMD streamlit run app.py --server.port=${PORT} --server.address=0.0.0.0
