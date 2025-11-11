@@ -1,0 +1,88 @@
+# Render Blueprint for Real-Time System Monitoring
+# This file defines both backend and frontend services for Render deployment
+
+services:
+  # ============================================================================
+  # BACKEND SERVICE (FastAPI + WebSocket)
+  # ============================================================================
+  - type: web
+    name: system-monitoring-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    region: oregon # Change to your preferred region
+    plan: free # Change to starter/standard for production
+    branch: main
+    
+    # Environment Variables
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: BACKEND_HOST
+        value: 0.0.0.0
+      - key: BACKEND_PORT
+        value: 10000
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DEBUG
+        value: false
+        
+      # Add your API keys here or use Render's secret management
+      - key: GROQ_API_KEY
+        sync: false # This will prompt you to add it in Render dashboard
+      - key: HUGGINGFACE_API_KEY
+        sync: false
+        
+    # Health check
+    healthCheckPath: /health
+    
+    # Auto-deploy on push to main
+    autoDeploy: true
+
+  # ============================================================================
+  # FRONTEND SERVICE (Streamlit)
+  # ============================================================================
+  - type: web
+    name: system-monitoring-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    region: oregon # Use same region as backend
+    plan: free # Change to starter/standard for production
+    branch: main
+    
+    # Environment Variables
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: BACKEND_URL
+        fromService:
+          name: system-monitoring-backend
+          type: web
+          property: host
+          envVarKey: BACKEND_URL
+      - key: STREAMLIT_SERVER_PORT
+        value: 10000
+      - key: STREAMLIT_SERVER_ADDRESS
+        value: 0.0.0.0
+      - key: STREAMLIT_SERVER_HEADLESS
+        value: true
+      - key: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+        value: false
+        
+    # Auto-deploy on push to main
+    autoDeploy: true
+
+# ============================================================================
+# DATABASES (Optional - Uncomment if needed)
+# ============================================================================
+# databases:
+#   - name: system-monitoring-db
+#     databaseName: monitoring
+#     user: monitoring_user
+#     plan: free # Change to starter/standard for production
+#     region: oregon

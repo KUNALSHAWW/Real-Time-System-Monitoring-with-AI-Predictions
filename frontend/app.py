@@ -43,8 +43,9 @@ st.set_page_config(
 # CONFIGURATION
 # ============================================================================
 
-# Backend API configuration
-API_BASE_URL = "http://localhost:8000"
+# Backend API configuration - Use environment variable for Hugging Face Spaces
+import os
+API_BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 # Initialize MetricsFetcher
 if METRICS_MODULE_AVAILABLE:

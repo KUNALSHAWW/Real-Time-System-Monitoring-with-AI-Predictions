@@ -221,7 +221,9 @@ st.markdown("""
 # CONFIGURATION & VALIDATION
 # ============================================================================
 
-API_BASE_URL = "http://localhost:8000"
+# Backend API configuration - Use environment variable for Hugging Face Spaces
+import os
+API_BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 def validate_email(email: str) -> bool:
