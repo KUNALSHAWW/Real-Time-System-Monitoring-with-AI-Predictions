@@ -189,25 +189,27 @@ A **production-ready**, **open-source** system health monitoring platform design
 
 <div align="center">
 
-### � Main Dashboard
-![Dashboard Overview](https://via.placeholder.com/800x450/4CAF50/FFFFFF?text=Real-Time+Health+Dashboard)
-*Beautiful, responsive dashboard with animated metrics cards and live charts*
+![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)
+![Python](https://img.shields.io/badge/python-3.9+-green.svg)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Status](https://img.shields.io/badge/status-production--ready-success.svg)
+![Streamlit](https://img.shields.io/badge/streamlit-1.28+-FF4B4B.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-009688.svg)
 
-### 🔔 Notification Center
-![Notification Center](https://via.placeholder.com/800x450/2196F3/FFFFFF?text=Smart+Notification+System)
-*In-app notification center with unread badges and severity-based color coding*
+**Enterprise-grade system monitoring platform with AI-powered anomaly detection, intelligent fix suggestions, and predictive analytics. Built with user-friendly UI for both technical and non-technical[...]
 
-### ⚙️ Settings Panel
-![Settings](https://via.placeholder.com/800x450/FF9800/FFFFFF?text=User-Friendly+Settings)
-*Easy-to-use sliders and toggles for customization - no coding required*
+[Features](#-key-features) • [Quick Start](#-quick-start) • [Screenshots](#-screenshots) • [API](#-api-reference) • [Architecture](#-architecture)
 
-### 🚨 Alert Management
-![Alerts](https://via.placeholder.com/800x450/F44336/FFFFFF?text=Alert+History+%26+Management)
-*Comprehensive alert history with filter options and quick actions*
+---
 
-### 🔮 Predictions
-![Predictions](https://via.placeholder.com/800x450/9C27B0/FFFFFF?text=Predictive+Analytics)
-*Simple forecasting with visual trend lines and risk assessment*
+### 👨‍💻 Developed By
+
+**Kunal Shaw**  
+🎓 Computer Science Student | 🚀 Full-Stack Developer | 🤖 AI/ML Enthusiast
+
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/kunal-kumar-shaw-443999205)
+[![GitHub](https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/KUNALSHAWW)
+[![Email](https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white)](mailto:cs23b1039@iiitr.ac.in)
 
 </div>
 
@@ -2272,36 +2274,6 @@ pre-commit install
 | CPU Usage (Idle) | < 5% | 2.3% |
 
 *Tested on: 4-core CPU, 8GB RAM, SSD storage*
-
-## 🗺️ Roadmap
-
-### Q1 2024
-- [x] AI-powered fix suggestions
-- [x] Multi-LLM integration (GROQ/Ollama/HF)
-- [x] Enhanced incident management
-- [ ] Mobile app (React Native)
-- [ ] Slack/Teams bot integration
-
-### Q2 2024
-- [ ] GPU support for ML inference
-- [ ] Custom metric plugins API
-- [ ] Advanced forecasting (Prophet, ARIMA)
-- [ ] Cost optimization module
-- [ ] Multi-cloud support (AWS/GCP/Azure)
-
-### Q3 2024
-- [ ] Distributed tracing integration
-- [ ] Advanced RBAC with SSO
-- [ ] Capacity planning module
-- [ ] SLA monitoring & reporting
-- [ ] Automated remediation actions
-
-### Q4 2024
-- [ ] Kubernetes operator
-- [ ] Service mesh integration
-- [ ] ML model marketplace
-- [ ] White-label support
-- [ ] Enterprise features
 
 ## 📜 License
 
