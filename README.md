@@ -2214,8 +2214,8 @@ We welcome contributions! Here's how to get started:
 
 ```bash
 # Fork and clone repository
-git clone https://github.com/YOUR_USERNAME/system-monitoring-ai.git
-cd system-monitoring-ai
+git clone https://github.com/KUNALSHAWW/Real-Time-System-Monitoring-with-AI-Predictions.git
+cd Real-Time-System-Monitoring-with-AI-Predictions
 
 # Create feature branch
 git checkout -b feature/your-feature-name
@@ -2423,24 +2423,8 @@ Special thanks to all contributors and the open-source community! 🎉
 ### Get Help
 
 - **📖 Documentation**: [https://docs.systemmonitoring.dev](https://docs.systemmonitoring.dev)
-- **💬 Discussions**: [GitHub Discussions](https://github.com/yourusername/system-monitoring-ai/discussions)
-- **🐛 Issues**: [GitHub Issues](https://github.com/yourusername/system-monitoring-ai/issues)
-- **💬 Discord**: [Join our community](https://discord.gg/systemmonitoring)
-- **📧 Email**: support@systemmonitoring.dev
-
-### Stay Updated
-
-- **🐦 Twitter**: [@SystemMonitorAI](https://twitter.com/SystemMonitorAI)
-- **📝 Blog**: [blog.systemmonitoring.dev](https://blog.systemmonitoring.dev)
-- **📺 YouTube**: [System Monitoring Tutorials](https://youtube.com/@systemmonitoring)
-
-### Enterprise Support
-
-For enterprise deployments, custom integrations, or consulting:
-- **Email**: enterprise@systemmonitoring.dev
-- **Schedule Call**: [calendly.com/systemmonitoring](https://calendly.com/systemmonitoring)
-
----
+- **💬 Discussions**: [GitHub Discussions](https://github.com/KUNALSHAWW/Real-Time-System-Monitoring-with-AI-Predictions/discussions)
+- **🐛 Issues**: [GitHub Issues](https://github.com/KUNALSHAWW/Real-Time-System-Monitoring-with-AI-Predictions/issues)
 
 <div align="center">
 
@@ -2448,7 +2432,7 @@ For enterprise deployments, custom integrations, or consulting:
 
 ⭐ **Star this repo** if you find it helpful!
 
-[Report Bug](https://github.com/yourusername/system-monitoring-ai/issues) · [Request Feature](https://github.com/yourusername/system-monitoring-ai/issues) · [Contributing Guide](CONTRIBUTING.md)
+[Report Bug](https://github.com/KUNALSHAWW/Real-Time-System-Monitoring-with-AI-Predictions/issues) · [Request Feature](https://github.com/KUNALSHAWW//issues) · [Contributing Guide](CONTRIBUTING.md)
 
 ---
 
