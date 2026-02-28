@@ -1,6 +1,6 @@
 """
 Real-Time System Monitoring Dashboard
-Built with Streamlit for real-time visualization and incident management
+Production-ready Streamlit app for Hugging Face Spaces deployment
 """
 
 import streamlit as st
@@ -12,21 +12,9 @@ from datetime import datetime, timedelta
 from streamlit_option_menu import option_menu
 import requests
 import json
+import os
 from typing import Dict, Any, List
 from collections import deque
-
-# Import custom metrics fetcher
-try:
-    from metrics_fetcher import (
-        MetricsFetcher, 
-        fetch_and_cache_metrics, 
-        get_latest_metrics,
-        get_buffered_metrics_as_list
-    )
-    METRICS_MODULE_AVAILABLE = True
-except ImportError:
-    METRICS_MODULE_AVAILABLE = False
-    print("Warning: metrics_fetcher module not available")
 
 # ============================================================================
 # PAGE CONFIGURATION
@@ -44,118 +32,261 @@ st.set_page_config(
 # ============================================================================
 
 # Backend API configuration - Use environment variable for Hugging Face Spaces
-import os
-API_BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+API_BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 
-# Initialize MetricsFetcher
-if METRICS_MODULE_AVAILABLE:
-    @st.cache_resource
-    def get_fetcher():
-        return MetricsFetcher(API_BASE_URL)
-    
-    fetcher = get_fetcher()
-else:
-    fetcher = None
-
-# Initialize session state for metrics history
+# Initialize session state
 if 'metrics_history' not in st.session_state:
     st.session_state['metrics_history'] = deque(maxlen=100)
 if 'backend_connected' not in st.session_state:
     st.session_state['backend_connected'] = False
+if 'last_error' not in st.session_state:
+    st.session_state['last_error'] = None
+if 'host_info' not in st.session_state:
+    st.session_state['host_info'] = None
 
 # ============================================================================
-# HELPER FUNCTIONS - METRICS
+# HELPER FUNCTIONS - API CALLS
 # ============================================================================
 
 def check_backend_connection() -> bool:
     """Check if backend is accessible"""
     try:
-        response = requests.get(f"{API_BASE_URL}/health", timeout=2)
+        response = requests.get(f"{API_BASE_URL}/health", timeout=5)
         return response.status_code == 200
-    except:
+    except Exception as e:
+        st.session_state['last_error'] = str(e)
         return False
 
 
-def get_realtime_metrics() -> Dict[str, Any]:
-    """Get latest metrics from backend or use fallback"""
-    if METRICS_MODULE_AVAILABLE and fetcher:
-        try:
-            metrics = fetch_and_cache_metrics(fetcher)
-            # Also store in session state
-            st.session_state['metrics_history'].append(metrics)
+def fetch_current_metrics() -> Dict[str, Any]:
+    """Fetch current metrics from backend API"""
+    try:
+        response = requests.get(f"{API_BASE_URL}/api/metrics/current", timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
             st.session_state['backend_connected'] = True
-            return metrics
-        except Exception as e:
+            st.session_state['last_error'] = None
+            
+            # Store host info
+            if 'host_info' in data:
+                st.session_state['host_info'] = data['host_info']
+            
+            # Add to history
+            st.session_state['metrics_history'].append(data)
+            return data
+        else:
             st.session_state['backend_connected'] = False
-            # Don't show error, just use fallback
-    
-    # Fallback to simulated data
-    st.session_state['backend_connected'] = False
-    import random
-    return {
-        'cpu_percent': round(random.uniform(50, 80), 1),
-        'memory_percent': round(random.uniform(40, 70), 1),
-        'disk_percent': round(random.uniform(60, 85), 1),
-        'network_sent': int(random.uniform(100000000, 500000000)),
-        'network_recv': int(random.uniform(100000000, 500000000)),
-        'timestamp': datetime.now().isoformat()
-    }
+            st.session_state['last_error'] = f"API returned status {response.status_code}"
+            return None
+            
+    except requests.exceptions.ConnectionError:
+        st.session_state['backend_connected'] = False
+        st.session_state['last_error'] = "Connection Error: Cannot reach backend server"
+        return None
+    except requests.exceptions.Timeout:
+        st.session_state['backend_connected'] = False
+        st.session_state['last_error'] = "Timeout: Backend server not responding"
+        return None
+    except Exception as e:
+        st.session_state['backend_connected'] = False
+        st.session_state['last_error'] = f"Error: {str(e)}"
+        return None
 
 
-def get_metrics_history() -> pd.DataFrame:
-    """Convert metrics history to DataFrame"""
-    if METRICS_MODULE_AVAILABLE:
-        metrics_list = get_buffered_metrics_as_list()
-    else:
-        metrics_list = list(st.session_state['metrics_history'])
-    
-    if len(metrics_list) == 0:
-        # Return dummy data
-        times = pd.date_range(start=datetime.now() - timedelta(minutes=10), periods=20, freq='30s')
-        return pd.DataFrame({
-            'timestamp': times,
-            'cpu_percent': np.random.normal(65, 15, 20).clip(0, 100),
-            'memory_percent': np.random.normal(55, 12, 20).clip(0, 100),
-            'disk_percent': np.random.normal(72, 5, 20).clip(0, 100)
-        })
-    
-    # Convert to DataFrame
-    df = pd.DataFrame(metrics_list)
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    return df
+def fetch_incidents() -> List[Dict[str, Any]]:
+    """Fetch incidents from backend"""
+    try:
+        response = requests.get(f"{API_BASE_URL}/api/incidents/list", timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except:
+        return []
+
+
+def fetch_incident_stats() -> Dict[str, Any]:
+    """Fetch incident statistics"""
+    try:
+        response = requests.get(f"{API_BASE_URL}/api/incidents/stats", timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return {}
+    except:
+        return {}
+
+
+def fetch_predictions(metric: str, hours: int = 1) -> Dict[str, Any]:
+    """Fetch predictions for a metric"""
+    try:
+        response = requests.get(f"{API_BASE_URL}/api/predictions/forecast/{metric}?hours={hours}", timeout=15)
+        if response.status_code == 200:
+            return response.json()
+        return {"error": f"API returned {response.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def fetch_anomaly_risk() -> Dict[str, Any]:
+    """Fetch anomaly risk assessment"""
+    try:
+        response = requests.get(f"{API_BASE_URL}/api/predictions/anomaly-risk", timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return {}
+    except:
+        return {}
+
+
+def analyze_with_ai(query: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Send analysis request to AI endpoint"""
+    try:
+        payload = {
+            "query": query,
+            "context": context or {},
+            "include_current_metrics": True
+        }
+        response = requests.post(
+            f"{API_BASE_URL}/api/ai/analyze",
+            json=payload,
+            timeout=30
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"error": response.json().get("detail", "Analysis failed")}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def send_email_report(email: str, include_ai: bool = True, message: str = "") -> Dict[str, Any]:
+    """Send email report"""
+    try:
+        payload = {
+            "recipient_email": email,
+            "subject": "System Monitoring Report",
+            "include_ai_analysis": include_ai,
+            "custom_message": message
+        }
+        response = requests.post(
+            f"{API_BASE_URL}/api/reports/send-report",
+            json=payload,
+            timeout=30
+        )
+        return response.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def create_incident(title: str, description: str, severity: str) -> Dict[str, Any]:
+    """Create a new incident"""
+    try:
+        payload = {
+            "title": title,
+            "description": description,
+            "severity": severity
+        }
+        response = requests.post(
+            f"{API_BASE_URL}/api/incidents/create",
+            json=payload,
+            timeout=10
+        )
+        return response.json()
+    except Exception as e:
+        return {"error": str(e)}
+
 
 # ============================================================================
-# SIDEBAR NAVIGATION
+# UI HELPER FUNCTIONS
+# ============================================================================
+
+def format_bytes(bytes_val: int) -> str:
+    """Format bytes to human readable string"""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if bytes_val < 1024:
+            return f"{bytes_val:.2f} {unit}"
+        bytes_val /= 1024
+    return f"{bytes_val:.2f} PB"
+
+
+def get_status_color(value: float) -> str:
+    """Get status color based on value"""
+    if value >= 90:
+        return "🔴"
+    elif value >= 70:
+        return "🟡"
+    else:
+        return "🟢"
+
+
+def create_gauge_chart(value: float, title: str, max_val: float = 100):
+    """Create a gauge chart"""
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=value,
+        title={'text': title, 'font': {'size': 16}},
+        gauge={
+            'axis': {'range': [0, max_val], 'tickwidth': 1},
+            'bar': {'color': "#3498db"},
+            'bgcolor': "white",
+            'borderwidth': 2,
+            'bordercolor': "gray",
+            'steps': [
+                {'range': [0, 50], 'color': '#2ecc71'},
+                {'range': [50, 70], 'color': '#f1c40f'},
+                {'range': [70, 90], 'color': '#e67e22'},
+                {'range': [90, 100], 'color': '#e74c3c'}
+            ],
+            'threshold': {
+                'line': {'color': "red", 'width': 4},
+                'thickness': 0.75,
+                'value': 90
+            }
+        }
+    ))
+    fig.update_layout(height=200, margin=dict(l=20, r=20, t=40, b=20))
+    return fig
+
+
+# ============================================================================
+# SIDEBAR
 # ============================================================================
 
 with st.sidebar:
-    st.image("https://via.placeholder.com/250x50?text=System+Monitor", use_column_width=True)
+    st.title("📊 System Monitor")
     
-    # Connection status - check actual backend connection
+    # Connection status
     backend_alive = check_backend_connection()
     
     if backend_alive and st.session_state.get('backend_connected', False):
         st.success("🟢 Connected to Backend")
+        if st.session_state.get('host_info'):
+            hi = st.session_state['host_info']
+            st.caption(f"📍 {hi.get('hostname', 'Unknown')}")
+            st.caption(f"🐧 {hi.get('os', 'Unknown')} {hi.get('os_version', '')}")
     elif backend_alive:
-        st.info("🟡 Backend Available (fetching...)")
-    elif METRICS_MODULE_AVAILABLE:
-        st.warning("� Backend Offline (using demo data)")
+        st.info("🟡 Backend Available")
     else:
-        st.error("� Demo Mode (No backend)")
+        st.error("🔴 Backend Offline")
+        if st.session_state.get('last_error'):
+            st.caption(f"⚠️ {st.session_state['last_error']}")
     
-    # Show backend URL
-    with st.expander("Backend Info"):
+    # Backend info
+    with st.expander("🔧 Configuration"):
         st.code(f"API: {API_BASE_URL}")
-        if st.button("Test Connection"):
+        if st.button("🔄 Test Connection"):
             if check_backend_connection():
-                st.success("✅ Backend is reachable!")
+                st.success("✅ Connection OK!")
             else:
-                st.error("❌ Cannot reach backend")
+                st.error("❌ Connection Failed")
     
+    st.divider()
+    
+    # Navigation
     selected = option_menu(
         menu_title="Navigation",
-        options=["Dashboard", "Metrics", "Anomalies", "Predictions", "Incidents", "AI Analysis"],
-        icons=["speedometer2", "graph-up", "exclamation-triangle", "crystal-ball", "list-check", "robot"],
+        options=["Dashboard", "Predictions", "Incidents", "AI Analysis", "Reports"],
+        icons=["speedometer2", "graph-up-arrow", "exclamation-triangle", "robot", "envelope"],
         menu_icon="cast",
         default_index=0
     )
@@ -165,71 +296,7 @@ with st.sidebar:
     # Settings
     st.subheader("⚙️ Settings")
     auto_refresh = st.checkbox("Auto-refresh", value=True)
-    refresh_interval = st.slider("Refresh interval (seconds)", 5, 60, 10)
-    
-    if auto_refresh:
-        st.session_state['refresh'] = True
-
-
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
-
-def create_metric_card(col, title: str, value: str, delta: str = None, icon: str = "📊"):
-    """Create metric card"""
-    with col:
-        st.metric(
-            label=f"{icon} {title}",
-            value=value,
-            delta=delta,
-            delta_color="inverse"
-        )
-
-
-def create_line_chart(df: pd.DataFrame, title: str, x_col: str, y_col: str):
-    """Create line chart with Plotly"""
-    fig = px.line(
-        df,
-        x=x_col,
-        y=y_col,
-        title=title,
-        markers=True,
-        template="plotly_dark"
-    )
-    
-    fig.update_layout(
-        hovermode="x unified",
-        height=400,
-        margin=dict(l=0, r=0, t=30, b=0)
-    )
-    
-    return fig
-
-
-def create_gauge_chart(value: float, max_value: float, title: str, unit: str = "%"):
-    """Create gauge chart"""
-    fig = go.Figure(data=[go.Gauge(
-        mode="gauge+number+delta",
-        value=value,
-        title={'text': title},
-        delta={'reference': max_value * 0.8},
-        gauge={
-            'axis': {'range': [0, max_value]},
-            'bar': {'color': "darkblue"},
-            'steps': [
-                {'range': [0, max_value * 0.5], 'color': "lightgray"},
-                {'range': [max_value * 0.5, max_value], 'color': "gray"}
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': max_value * 0.9
-            }
-        }
-    )])
-    
-    fig.update_layout(height=300, margin=dict(l=0, r=0, t=30, b=0))
-    return fig
+    refresh_interval = st.slider("Refresh (seconds)", 5, 60, 10)
 
 
 # ============================================================================
@@ -237,225 +304,114 @@ def create_gauge_chart(value: float, max_value: float, title: str, unit: str = "
 # ============================================================================
 
 if selected == "Dashboard":
-    st.title("📊 Real-Time System Monitoring Dashboard")
+    st.title("📊 Real-Time System Monitoring")
     
-    # Get real-time metrics
-    metrics = get_realtime_metrics()
+    # Fetch current metrics
+    metrics = fetch_current_metrics()
     
-    # Key metrics
+    if metrics is None:
+        st.error("⚠️ Cannot connect to backend server")
+        st.info(f"""
+        **Connection Error**: Unable to reach the backend at `{API_BASE_URL}`
+        
+        Possible solutions:
+        1. Ensure the backend is running
+        2. Check the `BACKEND_URL` environment variable
+        3. Verify network connectivity
+        """)
+        st.stop()
+    
+    # Host Information Banner
+    if st.session_state.get('host_info'):
+        hi = st.session_state['host_info']
+        with st.container():
+            st.info(f"🖥️ **Monitoring:** {hi.get('hostname', 'Container')} | **OS:** {hi.get('os', 'Linux')} {hi.get('os_version', '')} | **CPU Cores:** {hi.get('cpu_count_logical', 'N/A')}")
+    
+    # Key Metrics Row
     col1, col2, col3, col4 = st.columns(4)
     
-    create_metric_card(
-        col1, 
-        "CPU Usage", 
-        f"{metrics.get('cpu_percent', 0):.1f}%", 
-        "+5%", 
-        "⚙️"
-    )
-    create_metric_card(
-        col2, 
-        "Memory", 
-        f"{metrics.get('memory_percent', 0):.1f}%", 
-        "-2%", 
-        "💾"
-    )
-    create_metric_card(
-        col3, 
-        "Disk", 
-        f"{metrics.get('disk_percent', 0):.1f}%", 
-        "+1%", 
-        "💿"
-    )
+    with col1:
+        cpu = metrics.get('cpu_percent', 0)
+        st.metric(
+            label=f"{get_status_color(cpu)} CPU Usage",
+            value=f"{cpu:.1f}%"
+        )
     
-    # Calculate network speed (convert bytes to Mbps)
-    network_sent_mb = metrics.get('network_sent', 0) / (1024 * 1024)
-    create_metric_card(
-        col4, 
-        "Network (Sent)", 
-        f"{network_sent_mb:.1f} MB", 
-        "+12%", 
-        "🌐"
-    )
+    with col2:
+        mem = metrics.get('memory_percent', 0)
+        st.metric(
+            label=f"{get_status_color(mem)} Memory",
+            value=f"{mem:.1f}%",
+            delta=f"{format_bytes(metrics.get('memory_used', 0))} used"
+        )
+    
+    with col3:
+        disk = metrics.get('disk_percent', 0)
+        st.metric(
+            label=f"{get_status_color(disk)} Disk",
+            value=f"{disk:.1f}%",
+            delta=f"{format_bytes(metrics.get('disk_free', 0))} free"
+        )
+    
+    with col4:
+        processes = metrics.get('process_count', 0)
+        st.metric(
+            label="⚙️ Processes",
+            value=str(processes)
+        )
     
     st.divider()
     
-    # System overview
+    # Gauge Charts
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        fig = create_gauge_chart(metrics.get('cpu_percent', 0), "CPU %")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        fig = create_gauge_chart(metrics.get('memory_percent', 0), "Memory %")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col3:
+        fig = create_gauge_chart(metrics.get('disk_percent', 0), "Disk %")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    st.divider()
+    
+    # Historical Charts
     col1, col2 = st.columns(2)
     
-    with col1:
-        st.subheader("CPU Utilization Over Time (Real-time)")
+    history = list(st.session_state['metrics_history'])
+    
+    if len(history) > 1:
+        df = pd.DataFrame(history)
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
         
-        # Get historical data from WebSocket
-        df_history = get_metrics_history()
-        
-        if not df_history.empty and 'cpu_percent' in df_history.columns:
-            fig = create_line_chart(df_history, "CPU %", "timestamp", "cpu_percent")
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Waiting for real-time data...")
-    
-    with col2:
-        st.subheader("Memory & Disk Usage (Real-time)")
-        
-        df_history = get_metrics_history()
-        
-        if not df_history.empty:
-            fig = go.Figure()
-            
-            if 'memory_percent' in df_history.columns:
-                fig.add_trace(go.Scatter(
-                    x=df_history['timestamp'],
-                    y=df_history['memory_percent'],
-                    mode='lines',
-                    name='Memory',
-                    line=dict(color='blue')
-                ))
-            
-            if 'disk_percent' in df_history.columns:
-                fig.add_trace(go.Scatter(
-                    x=df_history['timestamp'],
-                    y=df_history['disk_percent'],
-                    mode='lines',
-                    name='Disk',
-                    line=dict(color='green')
-                ))
-            
-            fig.update_layout(
-                title="Memory & Disk %",
-                template="plotly_dark",
-                height=400,
-                margin=dict(l=0, r=0, t=30, b=0),
-                hovermode='x unified'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Waiting for real-time data...")
-    
-    st.divider()
-    
-    # Recent activities
-    st.subheader("📋 Recent Activities")
-    
-    activities = [
-        {"time": "10:45:23", "event": "High CPU detected on server-01", "severity": "🟠 Medium"},
-        {"time": "10:42:15", "event": "Memory usage spike on server-02", "severity": "🟡 Low"},
-        {"time": "10:39:47", "event": "Disk usage exceeded threshold", "severity": "🔴 Critical"},
-        {"time": "10:35:12", "event": "Network latency increased", "severity": "🟡 Low"},
-    ]
-    
-    for activity in activities:
-        col1, col2, col3 = st.columns([1, 3, 1])
         with col1:
-            st.caption(activity["time"])
+            st.subheader("📈 CPU & Memory Over Time")
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df['timestamp'], y=df['cpu_percent'], name='CPU %', line=dict(color='#3498db')))
+            fig.add_trace(go.Scatter(x=df['timestamp'], y=df['memory_percent'], name='Memory %', line=dict(color='#e74c3c')))
+            fig.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0), hovermode='x unified')
+            st.plotly_chart(fig, use_container_width=True)
+        
         with col2:
-            st.write(activity["event"])
-        with col3:
-            st.caption(activity["severity"])
-
-
-# ============================================================================
-# PAGE: METRICS
-# ============================================================================
-
-elif selected == "Metrics":
-    st.title("📈 System Metrics")
+            st.subheader("💾 Disk Usage")
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df['timestamp'], y=df['disk_percent'], name='Disk %', fill='tozeroy', line=dict(color='#27ae60')))
+            fig.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("📊 Collecting metrics data... Charts will appear after a few data points.")
     
-    col1, col2 = st.columns([3, 1])
+    # Network Info
+    st.subheader("🌐 Network I/O")
+    col1, col2 = st.columns(2)
     with col1:
-        metric_type = st.selectbox(
-            "Select Metric",
-            ["CPU", "Memory", "Disk", "Network", "Process"]
-        )
+        st.metric("⬆️ Bytes Sent", format_bytes(metrics.get('network_sent', 0)))
     with col2:
-        time_range = st.selectbox("Time Range", ["1h", "6h", "24h", "7d"])
-    
-    st.divider()
-    
-    # Generate sample metrics
-    times = pd.date_range(start='2024-11-09', periods=288, freq='5min')
-    
-    if metric_type == "CPU":
-        data = pd.DataFrame({
-            'timestamp': times,
-            'value': np.random.normal(65, 15, 288).clip(0, 100),
-            'host': np.random.choice(['server-01', 'server-02', 'server-03'], 288)
-        })
-        
-        fig = px.line(data, x='timestamp', y='value', color='host', title="CPU Utilization (%)")
-        
-    elif metric_type == "Memory":
-        data = pd.DataFrame({
-            'timestamp': times,
-            'value': np.random.normal(55, 12, 288).clip(0, 100),
-            'host': np.random.choice(['server-01', 'server-02', 'server-03'], 288)
-        })
-        
-        fig = px.line(data, x='timestamp', y='value', color='host', title="Memory Utilization (%)")
-    
-    fig.update_layout(height=500, template="plotly_dark")
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Metrics table
-    st.subheader("Detailed Metrics")
-    
-    metrics_df = pd.DataFrame({
-        'Timestamp': pd.date_range(start=datetime.now() - timedelta(hours=1), periods=12, freq='5min'),
-        'Host': ['server-01'] * 12,
-        'CPU (%)': np.random.uniform(50, 80, 12).round(2),
-        'Memory (%)': np.random.uniform(40, 70, 12).round(2),
-        'Disk (%)': np.random.uniform(60, 85, 12).round(2),
-        'Network (Mbps)': np.random.uniform(100, 500, 12).round(2)
-    })
-    
-    st.dataframe(metrics_df, use_container_width=True)
-
-
-# ============================================================================
-# PAGE: ANOMALIES
-# ============================================================================
-
-elif selected == "Anomalies":
-    st.title("⚠️ Anomaly Detection")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Anomalies", "47", "-3")
-    with col2:
-        st.metric("Critical", "2", "+1")
-    with col3:
-        st.metric("Warning", "8", "-2")
-    
-    st.divider()
-    
-    # Anomaly timeline
-    st.subheader("Anomaly Timeline")
-    
-    anomalies = pd.DataFrame({
-        'Timestamp': pd.date_range(start=datetime.now() - timedelta(hours=24), periods=47, freq='30min'),
-        'Metric': np.random.choice(['CPU', 'Memory', 'Disk', 'Network'], 47),
-        'Severity': np.random.choice(['Low', 'Medium', 'High', 'Critical'], 47),
-        'Value': np.random.uniform(50, 100, 47).round(2),
-        'Score': np.random.uniform(0.5, 1.0, 47).round(2)
-    })
-    
-    fig = px.scatter(
-        anomalies,
-        x='Timestamp',
-        y='Value',
-        color='Severity',
-        size='Score',
-        hover_data=['Metric'],
-        title="Anomalies Over Time",
-        color_discrete_map={'Low': 'yellow', 'Medium': 'orange', 'High': 'red', 'Critical': 'darkred'}
-    )
-    
-    fig.update_layout(height=400, template="plotly_dark")
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Anomaly details
-    st.subheader("Recent Anomalies")
-    st.dataframe(anomalies.sort_values('Timestamp', ascending=False).head(10), use_container_width=True)
+        st.metric("⬇️ Bytes Received", format_bytes(metrics.get('network_recv', 0)))
 
 
 # ============================================================================
@@ -463,80 +419,186 @@ elif selected == "Anomalies":
 # ============================================================================
 
 elif selected == "Predictions":
-    st.title("🔮 Predictive Forecasts")
+    st.title("🔮 Real-Time Predictive Forecasts")
     
+    # Fetch current metrics first to show live status
+    current_metrics = fetch_current_metrics()
+    
+    if current_metrics:
+        # Show LIVE current values at the top
+        st.subheader("📊 Current System Status (LIVE)")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            cpu_val = current_metrics.get('cpu_percent', 0)
+            st.metric("🔥 CPU", f"{cpu_val:.1f}%", 
+                      delta=f"{get_status_color(cpu_val)} {'Critical' if cpu_val > 90 else 'High' if cpu_val > 70 else 'Normal'}")
+        with col2:
+            mem_val = current_metrics.get('memory_percent', 0)
+            st.metric("💾 Memory", f"{mem_val:.1f}%",
+                      delta=f"{get_status_color(mem_val)} {'Critical' if mem_val > 90 else 'High' if mem_val > 70 else 'Normal'}")
+        with col3:
+            disk_val = current_metrics.get('disk_percent', 0)
+            st.metric("💿 Disk", f"{disk_val:.1f}%",
+                      delta=f"{get_status_color(disk_val)} {'Critical' if disk_val > 90 else 'High' if disk_val > 70 else 'Normal'}")
+        with col4:
+            st.metric("⏱️ Updated", datetime.now().strftime("%H:%M:%S"))
+        
+        st.divider()
+    
+    # Selection controls
     col1, col2 = st.columns([2, 1])
     with col1:
-        metric_to_forecast = st.selectbox("Select Metric to Forecast", ["CPU", "Memory", "Disk", "Network"])
+        metric_choice = st.selectbox("Select Metric", ["cpu", "memory", "disk"], key="pred_metric")
     with col2:
-        forecast_hours = st.selectbox("Forecast Period", ["6h", "12h", "24h"])
+        forecast_hours = st.selectbox("Forecast Period (hours)", [1, 2, 6, 12], key="pred_hours")
+    
+    # AUTO-LOAD predictions (no button required)
+    st.subheader(f"📈 {metric_choice.upper()} Forecast - Next {forecast_hours} Hour(s)")
+    
+    with st.spinner("Loading real-time forecast..."):
+        predictions = fetch_predictions(metric_choice, forecast_hours)
+    
+    if predictions and predictions.get('predictions'):
+        data_points = predictions.get('data_points_used', 0)
+        
+        # Status indicator
+        if data_points >= 10:
+            st.success(f"✅ Forecast ready • Using {data_points} real data points • Updated: {datetime.now().strftime('%H:%M:%S')}")
+        else:
+            st.warning(f"⏳ Limited data ({data_points} points) - forecast accuracy improves over time")
+        
+        # Show explanation
+        if 'explanation' in predictions:
+            st.markdown(predictions['explanation'])
+        
+        # Build forecast chart with CURRENT + PREDICTED data
+        pred_df = pd.DataFrame(predictions['predictions'])
+        pred_df['timestamp'] = pd.to_datetime(pred_df['timestamp'])
+        
+        fig = go.Figure()
+        
+        # Add current value marker
+        current_val = predictions.get('current_value', 0)
+        now_time = datetime.utcnow()
+        
+        fig.add_trace(go.Scatter(
+            x=[now_time],
+            y=[current_val],
+            mode='markers',
+            name='Current (LIVE)',
+            marker=dict(color='#e74c3c', size=15, symbol='diamond'),
+            hovertemplate=f"NOW<br>Value: {current_val:.1f}%<extra></extra>"
+        ))
+        
+        # Add forecast line
+        fig.add_trace(go.Scatter(
+            x=pred_df['timestamp'],
+            y=pred_df['predicted_value'],
+            mode='lines+markers',
+            name='Predicted',
+            line=dict(color='#9b59b6', width=3, dash='dash'),
+            marker=dict(size=6)
+        ))
+        
+        # Add confidence bands
+        upper = pred_df['predicted_value'] + (1 - pred_df['confidence']) * 10
+        lower = pred_df['predicted_value'] - (1 - pred_df['confidence']) * 10
+        lower = lower.clip(lower=0)  # Can't go below 0%
+        upper = upper.clip(upper=100)  # Can't go above 100%
+        
+        fig.add_trace(go.Scatter(
+            x=pred_df['timestamp'].tolist() + pred_df['timestamp'][::-1].tolist(),
+            y=upper.tolist() + lower[::-1].tolist(),
+            fill='toself',
+            fillcolor='rgba(155, 89, 182, 0.2)',
+            line=dict(color='rgba(255,255,255,0)'),
+            name='Confidence Band',
+            hoverinfo='skip'
+        ))
+        
+        # Add warning threshold line
+        fig.add_hline(y=70, line_dash="dot", line_color="orange", 
+                      annotation_text="Warning (70%)", annotation_position="right")
+        fig.add_hline(y=90, line_dash="dot", line_color="red", 
+                      annotation_text="Critical (90%)", annotation_position="right")
+        
+        fig.update_layout(
+            title=f"📊 {metric_choice.upper()} Usage: Current vs Forecast",
+            xaxis_title="Time",
+            yaxis_title="Usage (%)",
+            yaxis=dict(range=[0, 105]),
+            height=450,
+            hovermode='x unified',
+            legend=dict(orientation="h", yanchor="bottom", y=1.02)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Key metrics row
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("📍 Current", f"{current_val:.1f}%")
+        with col2:
+            pred_max = max([p['predicted_value'] for p in predictions['predictions']])
+            st.metric("📈 Predicted Max", f"{pred_max:.1f}%")
+        with col3:
+            pred_avg = sum([p['predicted_value'] for p in predictions['predictions']]) / len(predictions['predictions'])
+            st.metric("📊 Predicted Avg", f"{pred_avg:.1f}%")
+        with col4:
+            prob = predictions.get('next_anomaly_probability', 0)
+            risk_emoji = "🔴" if prob > 0.6 else "🟡" if prob > 0.3 else "🟢"
+            st.metric(f"{risk_emoji} Anomaly Risk", f"{prob * 100:.0f}%")
+    
+    elif predictions and predictions.get('explanation'):
+        st.info(predictions['explanation'])
+    else:
+        st.warning("⏳ Not enough historical data yet. The system collects metrics every 5 seconds - please wait a minute and refresh.")
     
     st.divider()
     
-    # Generate forecast
-    historical_times = pd.date_range(start='2024-11-09', periods=288, freq='5min')
-    forecast_times = pd.date_range(start='2024-11-10 12:00', periods=int(forecast_hours.split('h')[0]) * 12, freq='5min')
+    # ============ ANOMALY RISK ASSESSMENT (AUTO-LOAD) ============
+    st.subheader("⚠️ Real-Time Anomaly Risk Assessment")
     
-    historical_values = np.random.normal(65, 15, 288)
-    trend = np.linspace(0, 10, len(forecast_times))
-    forecast_values = historical_values[-1] + trend + np.random.normal(0, 5, len(forecast_times))
+    risk_data = fetch_anomaly_risk()
     
-    fig = go.Figure()
-    
-    fig.add_trace(go.Scatter(
-        x=historical_times, y=historical_values,
-        mode='lines',
-        name='Historical',
-        line=dict(color='blue')
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=forecast_times, y=forecast_values,
-        mode='lines',
-        name='Forecast',
-        line=dict(color='red', dash='dash')
-    ))
-    
-    # Add confidence interval
-    fig.add_trace(go.Scatter(
-        x=forecast_times.tolist() + forecast_times[::-1].tolist(),
-        y=(forecast_values + 10).tolist() + (forecast_values - 10)[::-1].tolist(),
-        fill='toself',
-        name='Confidence Interval',
-        fillcolor='rgba(255,0,0,0.1)',
-        line=dict(color='rgba(255,255,255,0)')
-    ))
-    
-    fig.update_layout(
-        title=f"{metric_to_forecast} Forecast ({forecast_hours})",
-        xaxis_title="Time",
-        yaxis_title="Value",
-        height=500,
-        template="plotly_dark",
-        hovermode='x unified'
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Alert predictions
-    st.subheader("Predicted Alerts")
-    
-    predictions = [
-        {"time": "2024-11-10 14:30", "alert": "CPU likely to exceed 85%", "probability": "78%", "severity": "🟠"},
-        {"time": "2024-11-10 16:00", "alert": "Memory usage spike expected", "probability": "65%", "severity": "🟡"},
-        {"time": "2024-11-10 18:30", "alert": "Disk usage approaching limit", "probability": "45%", "severity": "🟡"},
-    ]
-    
-    for pred in predictions:
-        col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+    if risk_data and risk_data.get('metrics_risk'):
+        risk_level = risk_data.get('risk_level', 'unknown').upper()
+        risk_color_map = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴", "UNKNOWN": "⚪"}
+        risk_color = risk_color_map.get(risk_level, "⚪")
+        
+        # Overall risk display
+        col1, col2 = st.columns([1, 2])
         with col1:
-            st.write(pred["time"])
+            st.markdown(f"### {risk_color} {risk_level} RISK")
+            st.metric("Overall Probability", f"{risk_data.get('overall_probability', 0) * 100:.0f}%")
         with col2:
-            st.write(pred["alert"])
-        with col3:
-            st.write(pred["probability"])
-        with col4:
-            st.write(pred["severity"])
+            if risk_data.get('top_risk_metric'):
+                st.warning(f"⚠️ Highest risk: **{risk_data['top_risk_metric'].upper()}**")
+        
+        # Per-metric breakdown
+        cols = st.columns(3)
+        metrics_risk = risk_data.get('metrics_risk', {})
+        for i, metric_name in enumerate(["cpu", "memory", "disk"]):
+            if metric_name in metrics_risk:
+                data = metrics_risk[metric_name]
+                with cols[i]:
+                    prob = data.get('probability', 0)
+                    color = "🔴" if prob > 0.6 else "🟡" if prob > 0.3 else "🟢"
+                    trend = data.get('trend', 'stable')
+                    trend_icon = "📈" if trend == "increasing" else "📉" if trend == "decreasing" else "➡️"
+                    st.metric(
+                        label=f"{color} {metric_name.upper()}",
+                        value=f"{data.get('current', 0):.1f}%",
+                        delta=f"{trend_icon} {trend.title()} • Risk: {prob * 100:.0f}%"
+                    )
+    elif risk_data and risk_data.get('message'):
+        st.info(f"ℹ️ {risk_data.get('message')} ({risk_data.get('data_points', 0)} data points collected)")
+    else:
+        st.info("⏳ Collecting data for risk assessment... Please wait 30 seconds.")
+    
+    # Manual refresh button
+    st.divider()
+    if st.button("🔄 Refresh Predictions Now"):
+        st.rerun()
 
 
 # ============================================================================
@@ -546,57 +608,57 @@ elif selected == "Predictions":
 elif selected == "Incidents":
     st.title("🚨 Incident Management")
     
+    # Fetch stats
+    stats = fetch_incident_stats()
+    
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Open", "3")
+        st.metric("Open", stats.get('open', 0))
     with col2:
-        st.metric("Investigating", "1")
+        st.metric("Investigating", stats.get('investigating', 0))
     with col3:
-        st.metric("Resolved Today", "5")
+        st.metric("Resolved", stats.get('resolved', 0))
     with col4:
-        st.metric("MTTR (avg)", "45 min")
+        st.metric("Auto-Generated", stats.get('auto_generated', 0))
     
     st.divider()
     
-    # Create incident tab
-    tab1, tab2 = st.tabs(["Active Incidents", "Create Incident"])
+    tab1, tab2 = st.tabs(["📋 Active Incidents", "➕ Create Incident"])
     
     with tab1:
-        st.subheader("Active Incidents")
+        incidents = fetch_incidents()
         
-        incidents = [
-            {
-                "ID": "INC-001",
-                "Title": "High CPU on server-01",
-                "Status": "🔴 Open",
-                "Severity": "Critical",
-                "Created": "10:45",
-                "Assigned": "John Doe"
-            },
-            {
-                "ID": "INC-002",
-                "Title": "Memory leak detected",
-                "Status": "🟠 Investigating",
-                "Severity": "High",
-                "Created": "09:20",
-                "Assigned": "Jane Smith"
-            },
-        ]
-        
-        incidents_df = pd.DataFrame(incidents)
-        st.dataframe(incidents_df, use_container_width=True)
+        if incidents:
+            for inc in incidents[:10]:  # Show latest 10
+                with st.expander(f"{inc.get('severity', 'medium').upper()} | {inc.get('title', 'Untitled')}"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**ID:** {inc.get('id')}")
+                        st.write(f"**Status:** {inc.get('status')}")
+                        st.write(f"**Auto-Generated:** {'Yes' if inc.get('auto_generated') else 'No'}")
+                    with col2:
+                        st.write(f"**Created:** {inc.get('created_at')}")
+                        if inc.get('metric_type'):
+                            st.write(f"**Metric:** {inc.get('metric_type')} = {inc.get('metric_value'):.1f}%")
+                    st.write(f"**Description:** {inc.get('description')}")
+        else:
+            st.info("✅ No active incidents")
     
     with tab2:
-        st.subheader("Create New Incident")
-        
-        with st.form("new_incident_form"):
-            title = st.text_input("Incident Title")
+        with st.form("create_incident"):
+            title = st.text_input("Title")
             description = st.text_area("Description")
-            severity = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"])
-            assignee = st.selectbox("Assign To", ["John Doe", "Jane Smith", "Mike Johnson"])
+            severity = st.selectbox("Severity", ["low", "medium", "high", "critical"])
             
-            if st.form_submit_button("Create Incident"):
-                st.success("✅ Incident created successfully!")
+            if st.form_submit_button("🚨 Create Incident"):
+                if title and description:
+                    result = create_incident(title, description, severity)
+                    if 'error' not in result:
+                        st.success(f"✅ Incident created: {result.get('id')}")
+                    else:
+                        st.error(f"❌ Failed: {result.get('error')}")
+                else:
+                    st.warning("Please fill in all fields")
 
 
 # ============================================================================
@@ -606,53 +668,115 @@ elif selected == "Incidents":
 elif selected == "AI Analysis":
     st.title("🤖 AI-Powered Analysis")
     
-    analysis_type = st.selectbox(
-        "Analysis Type",
-        ["Metric Analysis", "Anomaly Explanation", "Incident Summary", "System Health Report"]
-    )
+    st.markdown("""
+    Ask questions about your system's performance and get AI-powered insights.
+    The AI has access to real-time metrics from your container.
+    """)
+    
+    # Quick Analysis Buttons
+    st.subheader("🚀 Quick Analysis")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("📊 System Health Check"):
+            with st.spinner("Analyzing system health..."):
+                result = analyze_with_ai("Provide a comprehensive health check of the current system status.")
+                if 'analysis' in result:
+                    st.markdown(result['analysis'])
+                    st.caption(f"Model: {result.get('model_used', 'N/A')}")
+                else:
+                    st.error(f"Error: {result.get('error', 'Unknown error')}")
+    
+    with col2:
+        if st.button("⚠️ Risk Assessment"):
+            with st.spinner("Assessing risks..."):
+                result = analyze_with_ai("What are the potential risks and issues I should be aware of?")
+                if 'analysis' in result:
+                    st.markdown(result['analysis'])
+                else:
+                    st.error(f"Error: {result.get('error', 'Unknown error')}")
+    
+    with col3:
+        if st.button("💡 Optimization Tips"):
+            with st.spinner("Generating tips..."):
+                result = analyze_with_ai("Provide optimization recommendations to improve system performance.")
+                if 'analysis' in result:
+                    st.markdown(result['analysis'])
+                else:
+                    st.error(f"Error: {result.get('error', 'Unknown error')}")
     
     st.divider()
     
-    if analysis_type == "Metric Analysis":
-        st.subheader("Analyze System Metrics with AI")
-        
-        query = st.text_area(
-            "Enter your analysis query",
-            placeholder="e.g., Why is CPU usage high? What could be causing the spike?"
-        )
-        
-        model = st.radio("AI Model", ["GROQ (Llama 2)", "Local Ollama", "Hugging Face"])
-        
-        if st.button("🔍 Analyze"):
-            with st.spinner("Analyzing..."):
-                st.info(
-                    "🤖 AI Analysis Result:\n\n"
-                    "Based on the recent metrics, the CPU spike appears to be caused by:\n\n"
-                    "1. **Background Jobs**: Scheduled maintenance tasks running\n"
-                    "2. **Database Queries**: High number of concurrent queries\n"
-                    "3. **Memory Pressure**: Increased swap usage detected\n\n"
-                    "**Recommendations**:\n"
-                    "- Reschedule maintenance tasks to off-peak hours\n"
-                    "- Optimize slow-running queries\n"
-                    "- Consider increasing server capacity"
-                )
+    # Custom Query
+    st.subheader("💬 Custom Query")
+    query = st.text_area(
+        "Ask anything about your system",
+        placeholder="e.g., Why is CPU usage high? What's consuming the most memory?"
+    )
     
-    elif analysis_type == "Anomaly Explanation":
-        st.subheader("Explain Detected Anomalies")
+    if st.button("🔍 Analyze"):
+        if query:
+            with st.spinner("Analyzing with AI..."):
+                result = analyze_with_ai(query)
+                if 'analysis' in result:
+                    st.markdown("### 🤖 AI Response")
+                    st.markdown(result['analysis'])
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.caption(f"Model: {result.get('model_used', 'N/A')}")
+                    with col2:
+                        st.caption(f"Metrics included: {'✅' if result.get('metrics_included') else '❌'}")
+                else:
+                    st.error(f"Error: {result.get('error', 'Unknown error')}")
+        else:
+            st.warning("Please enter a query")
+
+
+# ============================================================================
+# PAGE: REPORTS
+# ============================================================================
+
+elif selected == "Reports":
+    st.title("📧 Email Reports")
+    
+    st.markdown("""
+    Send detailed system monitoring reports via email.
+    Reports include current metrics, AI analysis, and visual status indicators.
+    """)
+    
+    # Check email configuration
+    try:
+        response = requests.get(f"{API_BASE_URL}/api/reports/email-config", timeout=5)
+        config = response.json() if response.status_code == 200 else {}
+    except:
+        config = {}
+    
+    if config.get('email_configured'):
+        st.success("✅ Email is configured")
+    else:
+        st.warning("⚠️ Email not configured. Set EMAIL_USER and EMAIL_PASS in backend secrets.")
+    
+    st.divider()
+    
+    with st.form("send_report"):
+        recipient = st.text_input("Recipient Email", placeholder="user@example.com")
+        include_ai = st.checkbox("Include AI Analysis", value=True)
+        custom_message = st.text_area("Custom Message (optional)", placeholder="Add any notes...")
         
-        selected_anomaly = st.selectbox(
-            "Select Anomaly",
-            ["Memory spike at 14:30", "Network latency at 15:45", "Disk usage jump at 16:00"]
-        )
-        
-        if st.button("📖 Explain Anomaly"):
-            st.info(
-                f"**Analysis of: {selected_anomaly}**\n\n"
-                "This anomaly appears to be caused by:\n\n"
-                "- Temporary resource usage spike\n"
-                "- Possible data processing task\n"
-                "- No correlation with other system failures"
-            )
+        if st.form_submit_button("📤 Send Report"):
+            if recipient:
+                with st.spinner("Sending report..."):
+                    result = send_email_report(recipient, include_ai, custom_message)
+                    
+                    if result.get('success'):
+                        st.success(f"✅ Report sent to {recipient}!")
+                        st.balloons()
+                    else:
+                        error = result.get('error') or result.get('detail', {}).get('message', 'Unknown error')
+                        st.error(f"❌ Failed to send: {error}")
+            else:
+                st.warning("Please enter a recipient email")
 
 
 # ============================================================================
@@ -660,12 +784,10 @@ elif selected == "AI Analysis":
 # ============================================================================
 
 if auto_refresh:
-    # Use streamlit-autorefresh if available
     try:
         from streamlit_autorefresh import st_autorefresh
-        count = st_autorefresh(interval=refresh_interval * 1000, key="metrics_refresh")
+        st_autorefresh(interval=refresh_interval * 1000, key="auto_refresh")
     except ImportError:
-        # Fallback to time.sleep and rerun
         import time
         time.sleep(refresh_interval)
         st.rerun()

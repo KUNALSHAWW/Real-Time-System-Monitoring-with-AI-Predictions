@@ -1,206 +1,190 @@
 """
-Enhanced WebSocket Router for Real-Time Updates with Anomaly Detection
-Provides WebSocket endpoint for streaming metrics and anomalies to frontend
+WebSocket Router — per-agent real-time alert streaming.
+
+Endpoints:
+  WS  /ws/alerts/{agent_id}  — subscribe to anomaly alerts for a specific agent
+  WS  /ws/metrics/{agent_id} — subscribe to live metric push for a specific agent
+  POST /broadcast/alert       — internal helper to push an alert to subscribers
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
-from typing import List
+from __future__ import annotations
+
 import asyncio
 import json
-from datetime import datetime
-import psutil
-import numpy as np
-from collections import deque
+from datetime import datetime, timezone
+from typing import Dict, List
 
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from core.logger import get_logger
+
+logger = get_logger("websocket")
 router = APIRouter()
 
-# Store metrics history for anomaly detection
-metrics_history = {
-    'cpu_percent': deque(maxlen=100),
-    'memory_percent': deque(maxlen=100),
-    'disk_percent': deque(maxlen=100),
-}
 
-# ============================================================================
-# CONNECTION MANAGER
-# ============================================================================
+# ---------------------------------------------------------------------------
+# Connection Manager — keyed by agent_id
+# ---------------------------------------------------------------------------
 
-class ConnectionManager:
-    """Manage WebSocket connections"""
-    
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
-    
-    async def connect(self, websocket: WebSocket):
-        """Accept and store new WebSocket connection"""
-        await websocket.accept()
-        self.active_connections.append(websocket)
-    
-    def disconnect(self, websocket: WebSocket):
-        """Remove WebSocket connection"""
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-    
-    async def send_personal_message(self, message: str, websocket: WebSocket):
-        """Send message to specific client"""
-        await websocket.send_text(message)
-    
-    async def broadcast(self, message: str):
-        """Broadcast message to all connected clients"""
-        for connection in self.active_connections[:]:  # Use slice to avoid modification during iteration
+class AgentConnectionManager:
+    """
+    Manages WebSocket connections per agent_id.
+    Each agent_id has its own subscriber list.
+    """
+
+    def __init__(self) -> None:
+        # agent_id → list of websockets
+        self._alert_subs: Dict[str, List[WebSocket]] = {}
+        self._metric_subs: Dict[str, List[WebSocket]] = {}
+
+    # -- alert subscriptions ------------------------------------------------
+
+    async def connect_alerts(self, agent_id: str, ws: WebSocket) -> None:
+        await ws.accept()
+        self._alert_subs.setdefault(agent_id, []).append(ws)
+        logger.info("Alert subscriber connected for agent '%s' (total=%d)",
+                     agent_id, len(self._alert_subs[agent_id]))
+
+    def disconnect_alerts(self, agent_id: str, ws: WebSocket) -> None:
+        conns = self._alert_subs.get(agent_id, [])
+        if ws in conns:
+            conns.remove(ws)
+
+    async def push_alerts(self, agent_id: str, payload: dict | list) -> int:
+        """Send an alert payload to all subscribers of *agent_id*. Returns delivery count."""
+        conns = self._alert_subs.get(agent_id, [])
+        sent = 0
+        message = json.dumps({
+            "type": "alert",
+            "agent_id": agent_id,
+            "data": payload,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        for ws in conns[:]:
             try:
-                await connection.send_text(message)
-            except:
-                # Remove dead connections
-                self.active_connections.remove(connection)
+                await ws.send_text(message)
+                sent += 1
+            except Exception:
+                conns.remove(ws)
+        return sent
 
-manager = ConnectionManager()
+    # -- metric subscriptions -----------------------------------------------
+
+    async def connect_metrics(self, agent_id: str, ws: WebSocket) -> None:
+        await ws.accept()
+        self._metric_subs.setdefault(agent_id, []).append(ws)
+        logger.info("Metrics subscriber connected for agent '%s'", agent_id)
+
+    def disconnect_metrics(self, agent_id: str, ws: WebSocket) -> None:
+        conns = self._metric_subs.get(agent_id, [])
+        if ws in conns:
+            conns.remove(ws)
+
+    async def push_metrics(self, agent_id: str, payload: dict) -> int:
+        """Send a metric snapshot to all subscribers of *agent_id*."""
+        conns = self._metric_subs.get(agent_id, [])
+        sent = 0
+        message = json.dumps({
+            "type": "metrics",
+            "agent_id": agent_id,
+            "data": payload,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        for ws in conns[:]:
+            try:
+                await ws.send_text(message)
+                sent += 1
+            except Exception:
+                conns.remove(ws)
+        return sent
+
+    # -- broadcast to ALL agent subscribers ---------------------------------
+
+    async def broadcast_all(self, payload: dict) -> int:
+        """Broadcast a message to every connected subscriber regardless of agent."""
+        sent = 0
+        message = json.dumps(payload)
+        for conns in list(self._alert_subs.values()) + list(self._metric_subs.values()):
+            for ws in conns[:]:
+                try:
+                    await ws.send_text(message)
+                    sent += 1
+                except Exception:
+                    conns.remove(ws)
+        return sent
 
 
-def detect_anomaly(metric_name: str, value: float) -> dict:
-    """Detect anomaly using Z-score method"""
-    if metric_name not in metrics_history:
-        metrics_history[metric_name] = deque(maxlen=100)
-    
-    metrics_history[metric_name].append(value)
-    
-    # Need at least 10 data points
-    if len(metrics_history[metric_name]) < 10:
-        return {"is_anomaly": False}
-    
-    values = list(metrics_history[metric_name])
-    mean = np.mean(values)
-    std = np.std(values)
-    
-    if std > 0:
-        z_score = abs((value - mean) / std)
-    else:
-        z_score = 0
-    
-    is_anomaly = z_score > 2.0
-    
-    if is_anomaly:
-        if z_score > 3.5:
-            severity = "critical"
-        elif z_score > 3.0:
-            severity = "high"
-        elif z_score > 2.5:
-            severity = "medium"
-        else:
-            severity = "low"
-        
-        return {
-            "is_anomaly": True,
-            "metric_name": metric_name,
-            "value": value,
-            "z_score": round(z_score, 2),
-            "severity": severity,
-            "mean": round(mean, 2),
-            "std_dev": round(std, 2),
-            "threshold": round(mean + 2 * std, 2)
-        }
-    
-    return {"is_anomaly": False}
+manager = AgentConnectionManager()
 
-# ============================================================================
-# WEBSOCKET ENDPOINTS
-# ============================================================================
 
-@router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+# ---------------------------------------------------------------------------
+# Public helper — called by the ingest router to push alerts
+# ---------------------------------------------------------------------------
+
+async def push_alert(agent_id: str, anomalies: list[dict]) -> int:
+    """Push anomaly alerts through the WebSocket for this agent."""
+    return await manager.push_alerts(agent_id, anomalies)
+
+
+async def push_metric(agent_id: str, metric_snapshot: dict) -> int:
+    """Push a live metric snapshot through the WebSocket for this agent."""
+    return await manager.push_metrics(agent_id, metric_snapshot)
+
+
+# ---------------------------------------------------------------------------
+# WebSocket endpoints
+# ---------------------------------------------------------------------------
+
+@router.websocket("/alerts/{agent_id}")
+async def ws_alerts(websocket: WebSocket, agent_id: str):
     """
-    WebSocket endpoint for real-time metric streaming with anomaly detection
-    
-    Streams system metrics every 5 seconds with real-time anomaly detection
+    Subscribe to anomaly / critical alerts for a specific agent.
+
+    The server pushes messages of the form:
+        { "type": "alert", "agent_id": "...", "data": [...], "timestamp": "..." }
+
+    The client may send text frames as keep-alive pings.
     """
-    await manager.connect(websocket)
-    
+    await manager.connect_alerts(agent_id, websocket)
     try:
         while True:
-            # Collect real-time system metrics
-            cpu_percent = psutil.cpu_percent(interval=1)
-            memory_percent = psutil.virtual_memory().percent
-            disk_percent = psutil.disk_usage('/').percent
-            network = psutil.net_io_counters()
-            
-            # Detect anomalies
-            cpu_anomaly = detect_anomaly('cpu_percent', cpu_percent)
-            memory_anomaly = detect_anomaly('memory_percent', memory_percent)
-            disk_anomaly = detect_anomaly('disk_percent', disk_percent)
-            
-            anomalies = []
-            if cpu_anomaly["is_anomaly"]:
-                anomalies.append(cpu_anomaly)
-            if memory_anomaly["is_anomaly"]:
-                anomalies.append(memory_anomaly)
-            if disk_anomaly["is_anomaly"]:
-                anomalies.append(disk_anomaly)
-            
-            metrics = {
-                "timestamp": datetime.utcnow().isoformat(),
-                "cpu_percent": round(cpu_percent, 2),
-                "memory_percent": round(memory_percent, 2),
-                "disk_percent": round(disk_percent, 2),
-                "network_sent": network.bytes_sent,
-                "network_recv": network.bytes_recv,
-                "anomalies": anomalies,
-                "has_anomalies": len(anomalies) > 0
-            }
-            
-            # Send metrics to client
-            await websocket.send_json(metrics)
-            
-            # Wait 5 seconds before next update
-            await asyncio.sleep(5)
-            
+            # Keep the connection alive; accept pings from the client
+            _ = await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
-        print(f"Client disconnected")
-    except Exception as e:
-        print(f"WebSocket error: {e}")
-        manager.disconnect(websocket)
+        manager.disconnect_alerts(agent_id, websocket)
+        logger.info("Alert subscriber disconnected for agent '%s'", agent_id)
+    except Exception as exc:
+        manager.disconnect_alerts(agent_id, websocket)
+        logger.warning("WS alerts error for '%s': %s", agent_id, exc)
 
-@router.websocket("/ws/alerts")
-async def websocket_alerts(websocket: WebSocket):
+
+@router.websocket("/metrics/{agent_id}")
+async def ws_metrics(websocket: WebSocket, agent_id: str):
     """
-    WebSocket endpoint for real-time alert notifications
-    
-    Streams alerts and anomalies as they are detected
+    Subscribe to live metric snapshots for a specific agent.
+    Metrics are pushed each time the agent's data is ingested.
     """
-    await manager.connect(websocket)
-    
+    await manager.connect_metrics(agent_id, websocket)
     try:
         while True:
-            # Wait for client messages (heartbeat)
-            data = await websocket.receive_text()
-            
-            # Echo back (or handle commands)
-            await websocket.send_json({
-                "status": "connected",
-                "message": "Listening for alerts"
-            })
-            
-            await asyncio.sleep(10)
-            
+            _ = await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
-    except Exception as e:
-        print(f"WebSocket alerts error: {e}")
-        manager.disconnect(websocket)
+        manager.disconnect_metrics(agent_id, websocket)
+    except Exception as exc:
+        manager.disconnect_metrics(agent_id, websocket)
+        logger.warning("WS metrics error for '%s': %s", agent_id, exc)
+
+
+# ---------------------------------------------------------------------------
+# REST helper — broadcast alert (backwards compatible internal endpoint)
+# ---------------------------------------------------------------------------
 
 @router.post("/broadcast/alert")
 async def broadcast_alert(alert: dict):
-    """
-    Broadcast alert to all connected WebSocket clients
-    
-    This endpoint can be called internally when anomalies are detected
-    """
-    message = json.dumps({
+    """Broadcast an alert to ALL connected WebSocket subscribers."""
+    sent = await manager.broadcast_all({
         "type": "alert",
         "data": alert,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     })
-    
-    await manager.broadcast(message)
-    
-    return {"status": "broadcasted", "connections": len(manager.active_connections)}
+    return {"status": "broadcasted", "delivered_to": sent}

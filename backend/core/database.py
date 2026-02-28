@@ -1,4 +1,10 @@
-"""Database initialization and management."""
+"""
+Database initialisation and session management.
+
+Supports both PostgreSQL (asyncpg) and SQLite (aiosqlite) via the
+DATABASE_URL env-var.  On startup, `init_db()` creates all ORM tables
+defined in `core.models`.
+"""
 
 from typing import AsyncGenerator
 
@@ -9,26 +15,39 @@ from sqlalchemy.orm import sessionmaker
 
 from core.config import settings
 from core.logger import get_logger
+from core.models import Base  # ORM declarative base with all models
 
 logger = get_logger("database")
 
-# Database engine and session factory
+# Module-level singletons — populated by init_db()
 engine = None
 AsyncSessionLocal = None
 
 
-async def init_db():
-    """Initialize database connection."""
+async def init_db() -> None:
+    """
+    Initialise the async engine, session factory, and create all tables
+    that don't already exist.
+    """
     global engine, AsyncSessionLocal
 
     try:
-        database_url = settings.DATABASE_URL
+        database_url: str = settings.DATABASE_URL
+
+        # --- driver fixups ------------------------------------------------
         if database_url.startswith("postgresql://"):
-            database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            database_url = database_url.replace(
+                "postgresql://", "postgresql+asyncpg://", 1
+            )
+        elif database_url.startswith("sqlite:///"):
+            # aiosqlite driver for async SQLite
+            database_url = database_url.replace(
+                "sqlite:///", "sqlite+aiosqlite:///", 1
+            )
 
         url_obj = make_url(database_url)
 
-        engine_kwargs = {
+        engine_kwargs: dict = {
             "echo": settings.DEBUG,
             "pool_pre_ping": True,
         }
@@ -46,20 +65,29 @@ async def init_db():
 
         engine = create_async_engine(database_url, **engine_kwargs)
 
-        AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        AsyncSessionLocal = sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
 
+        # Create all tables (safe if they already exist)
         async with engine.begin() as conn:
-            await conn.run_sync(lambda sync_conn: sync_conn.execute(text("SELECT 1")))
+            await conn.run_sync(Base.metadata.create_all)
 
-        logger.info("✅ Database initialized successfully")
+        # Quick connectivity check
+        async with engine.begin() as conn:
+            await conn.execute(text("SELECT 1"))
+
+        logger.info("✅ Database initialised — all tables ready")
 
     except Exception as e:
-        logger.error(f"❌ Database initialization error: {str(e)}")
+        logger.error(f"❌ Database initialisation error: {e}")
         raise
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Get database session"""
+    """FastAPI dependency — yields an async session and closes it afterwards."""
+    if AsyncSessionLocal is None:
+        raise RuntimeError("Database not initialised. Call init_db() first.")
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -67,8 +95,8 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
-async def close_db():
-    """Close database connection"""
+async def close_db() -> None:
+    """Dispose of the engine pool (call on app shutdown)."""
     if engine:
         await engine.dispose()
         logger.info("✅ Database connection closed")

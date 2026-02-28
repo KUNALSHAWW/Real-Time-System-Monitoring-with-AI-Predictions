@@ -1,17 +1,12 @@
 # ============================================================================
 # FRONTEND DEPENDENCIES - Streamlit Dashboard
+# Production-ready for Hugging Face Spaces deployment
 # ============================================================================
 
 # Frontend Framework
 streamlit>=1.28.0
 streamlit-option-menu>=0.3.6
-
-# Advanced Forecasting (Optional - comment out if build fails)
-# prophet
-# statsmodels
-
-# WebSocket support
-websockets>=12.0
+streamlit-autorefresh>=1.0.0
 
 # Data Processing
 pandas>=2.0.0
@@ -19,19 +14,24 @@ numpy>=1.24.0
 
 # Visualization
 plotly>=5.18.0
-altair>=5.0.0
-matplotlib>=3.8.0
-seaborn>=0.13.0
 
 # API Communication
 requests>=2.31.0
-httpx>=0.25.0
-
-# Authentication
-PyJWT>=2.8.0
-cryptography>=41.0.0
 
 # Utilities
 python-dotenv>=1.0.0
-python-dateutil>=2.8.0
-pytz>=2023.3
+
+# ============================================================================
+# OPTIONAL - Uncomment if needed
+# ============================================================================
+
+# Additional visualization
+# altair>=5.0.0
+# matplotlib>=3.8.0
+# seaborn>=0.13.0
+
+# WebSocket support (if using WebSocket features)
+# websockets>=12.0
+
+# Authentication (if implementing user auth)
+# PyJWT>=2.8.0

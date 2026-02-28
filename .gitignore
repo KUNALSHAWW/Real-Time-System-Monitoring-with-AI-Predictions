@@ -18,6 +18,8 @@ data_pipeline/__pycache__/
 .vscode/
 *.iml
 node_modules/
+.next/
+react-frontend/.next/
 .DS_Store
 Thumbs.db
 /.history

@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
-        "postgresql://user:password@localhost:5432/system_monitoring"
+        "sqlite:///./monitoring.db"
     )
     DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "20"))
     DB_POOL_RECYCLE: int = int(os.getenv("DB_POOL_RECYCLE", "3600"))
@@ -77,8 +77,8 @@ class Settings(BaseSettings):
     # ML MODEL CONFIGURATION
     # ========================================================================
     
-    # GROQ Configuration
-    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama2-70b-4096")
+    # GROQ Configuration - Use Llama 3.1 70B (faster and more capable)
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
     
     # Ollama Configuration (Local LLM)
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -94,6 +94,15 @@ class Settings(BaseSettings):
     # Anomaly Detection
     ANOMALY_MODEL: str = os.getenv("ANOMALY_MODEL", "isolation_forest")
     ANOMALY_THRESHOLD: float = float(os.getenv("ANOMALY_THRESHOLD", "0.7"))
+    
+    # ========================================================================
+    # EMAIL CONFIGURATION
+    # ========================================================================
+    
+    EMAIL_USER: str = os.getenv("EMAIL_USER", "")
+    EMAIL_PASS: str = os.getenv("EMAIL_PASS", "")
+    SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
     
     # ========================================================================
     # DATA PIPELINE CONFIGURATION

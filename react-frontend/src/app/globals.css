@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --accent: #6366f1;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-slate-950 text-slate-100 antialiased;
+}
+
+/* Critical alert overlay */
+.alert-overlay {
+  @apply fixed inset-0 z-50 flex items-center justify-center;
+  background: rgba(127, 29, 29, 0.85);
+  backdrop-filter: blur(6px);
+}
