@@ -53,9 +53,15 @@ app = FastAPI(
 # Middleware
 # ---------------------------------------------------------------------------
 
+cors_origins = (
+    settings.cors_origins
+    if getattr(settings, "ENVIRONMENT", "development") == "production"
+    else ["http://localhost:3000"]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # tighten in production
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
