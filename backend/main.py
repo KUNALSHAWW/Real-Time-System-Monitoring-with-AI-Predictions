@@ -20,6 +20,7 @@ from routers import (
     ai_analysis,
     websocket,
     reports,
+    cost_analysis,
 )
 from routers.ingest import router as ingest_router
 
@@ -120,6 +121,12 @@ app.include_router(
     reports.router,
     prefix="/api/v1/reports",
     tags=["Email Reports"],
+)
+
+app.include_router(
+    cost_analysis.router,
+    prefix="/api/v1/cost",
+    tags=["Cost Analysis"],
 )
 
 # WebSocket (per-agent alert & metric streams)
