@@ -61,3 +61,15 @@ Desktop.ini
 # Local settings
 .vscode/
 settings.local.json
+*.local
+
+# Env files (explicit patterns)
+.env
+.env.local
+.env.*.local
+backend/.env
+agent/.env
+**/.env
+
+# Models/artifacts
+models/
