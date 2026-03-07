@@ -163,7 +163,7 @@ class SlackService:
                 ]
             }
             
-            response = requests.post(self.webhook_url, json=payload)
+            response = requests.post(self.webhook_url, json=payload, timeout=10)
             return response.status_code == 200
             
         except Exception as e:
@@ -224,7 +224,7 @@ class PagerDutyService:
                 }
             }
             
-            response = requests.post(self.events_url, json=payload, headers=headers)
+            response = requests.post(self.events_url, json=payload, headers=headers, timeout=10)
             return response.status_code == 202
             
         except Exception as e:
@@ -245,7 +245,7 @@ class PagerDutyService:
                 "dedup_key": dedup_key
             }
             
-            response = requests.post(self.events_url, json=payload, headers=headers)
+            response = requests.post(self.events_url, json=payload, headers=headers, timeout=10)
             return response.status_code == 202
             
         except Exception as e:
