@@ -123,7 +123,8 @@ class Settings(BaseSettings):
     # SECURITY & AUTHENTICATION
     # ========================================================================
     
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "")
+    REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", "10"))
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
     JWT_EXPIRATION_HOURS: int = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
     
@@ -162,6 +163,18 @@ class Settings(BaseSettings):
     )
     
     # ========================================================================
+    # SELF-HEALING / REMEDIATION
+    # ========================================================================
+    
+    AUTO_REMEDIATION_ENABLED: bool = (
+        os.getenv("AUTO_REMEDIATION_ENABLED", "false").lower() == "true"
+    )
+    REMEDIATION_DRY_RUN: bool = (
+        os.getenv("REMEDIATION_DRY_RUN", "true").lower() == "true"
+    )
+    REMEDIATION_COOLDOWN_SECONDS: int = int(os.getenv("REMEDIATION_COOLDOWN_SECONDS", "300"))
+    
+    # ========================================================================
     # NOTIFICATION SETTINGS
     # ========================================================================
     
@@ -191,6 +204,13 @@ def get_settings() -> Settings:
 
 # Global settings instance
 settings = get_settings()
+
+# Enforce SECRET_KEY in production
+if settings.ENVIRONMENT == "production" and not settings.SECRET_KEY:
+    raise RuntimeError(
+        "SECRET_KEY must be set in production. "
+        "Generate with: python scripts/generate_secret.py"
+    )
 
 
 def validate_required_settings():
