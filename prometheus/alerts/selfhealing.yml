@@ -1,0 +1,45 @@
+# Self-Healing Prometheus Alert Rules
+# These alerts fire when the self-healing system detects sustained issues.
+
+groups:
+  - name: selfhealing
+    interval: 30s
+    rules:
+      - alert: SustainedMemoryGrowth
+        expr: selfheal_memory_leak_suspects > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "{{ $value }} process(es) showing sustained memory growth"
+          description: >
+            The self-healing agent has detected {{ $value }} process(es)
+            with RSS growth exceeding the configured threshold for multiple
+            consecutive windows. Investigate via the audit log.
+
+      - alert: HighRemediationRate
+        expr: rate(selfheal_remediation_actions_total[1h]) > 10
+        for: 10m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "High remediation rate: {{ $value | humanize }}/sec"
+          description: >
+            The self-healing agent is performing more than 10 remediation
+            actions per hour. This may indicate a systemic issue rather
+            than isolated incidents. Review audit logs immediately.
+
+      - alert: ContainerRestartStorm
+        expr: rate(selfheal_container_restarts_total[30m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Container restart storm detected"
+          description: >
+            More than 3 container restarts in 30 minutes. Possible
+            crash loop or resource exhaustion. Check container logs
+            and memory leak suspects.

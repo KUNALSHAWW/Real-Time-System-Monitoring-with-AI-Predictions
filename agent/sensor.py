@@ -26,6 +26,15 @@ import psutil
 import requests
 from dotenv import load_dotenv
 
+# Self-healing modules (optional — degrade gracefully if numpy missing)
+try:
+    from self_healing.memory_leak_detector import MemoryLeakDetector
+    from self_healing.audit_logger import log_event as audit_log
+    from self_healing import config as sh_config
+    _SELF_HEAL_AVAILABLE = True
+except ImportError:
+    _SELF_HEAL_AVAILABLE = False
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -211,6 +220,18 @@ def main() -> None:
         log.error("USER_API_KEY is not set.  Please configure your .env file.")
         sys.exit(1)
 
+    # Initialize self-healing detector (if available)
+    leak_detector = None
+    if _SELF_HEAL_AVAILABLE:
+        leak_detector = MemoryLeakDetector()
+        log.info(
+            "Self-healing module loaded (dry_run=%s, enabled=%s)",
+            sh_config.REMEDIATION_DRY_RUN,
+            sh_config.AUTO_REMEDIATION_ENABLED,
+        )
+    else:
+        log.info("Self-healing module not available (numpy not installed?). Skipping.")
+
     log.info("=" * 60)
     log.info("  System Monitoring Agent")
     log.info("  Agent ID    : %s", AGENT_ID)
@@ -233,6 +254,22 @@ def main() -> None:
                 payload["disk_percent"],
                 payload["disk_write_bytes_delta"],
             )
+
+        # Run memory leak detection every collection interval
+        if leak_detector is not None:
+            try:
+                candidates = leak_detector.sample_all_processes()
+                if candidates:
+                    for c in candidates:
+                        log.warning(
+                            "[LEAK-SUSPECT] PID=%d %s — RSS=%.1f MB, growth=%.2f MB/min (%s)",
+                            c["pid"], c["name"],
+                            c["current_rss_mb"], c["growth_rate_mb_per_min"],
+                            c["recommendation"],
+                        )
+            except Exception as e:
+                log.error("Leak detector error: %s", e)
+
         time.sleep(COLLECTION_INTERVAL)
 
     log.info("Agent stopped.")

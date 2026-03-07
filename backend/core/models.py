@@ -153,3 +153,32 @@ class AnomalyEvent(Base):
 
     # Relationships
     agent = relationship("Agent", back_populates="anomaly_events")
+
+
+# ---------------------------------------------------------------------------
+# Remediation Events (self-healing audit trail)
+# ---------------------------------------------------------------------------
+
+class RemediationEvent(Base):
+    __tablename__ = "remediation_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_pk = Column(String(36), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
+    agent_id = Column(String(128), nullable=False, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    event_type = Column(String(64), nullable=False)          # e.g. "process_kill", "container_restart"
+    target_name = Column(String(256), nullable=False)
+    target_pid = Column(Integer, nullable=True)
+    reason = Column(Text, nullable=False)
+    dry_run = Column(Boolean, nullable=False, default=True)
+    success = Column(Boolean, nullable=False, default=False)
+    rollback_available = Column(Boolean, default=False)
+    metadata_json = Column(Text, nullable=True)              # JSON blob for extra context
+
+    __table_args__ = (
+        Index("ix_remediation_agent_ts", "agent_id", "timestamp"),
+    )
+
+    # Relationships
+    agent = relationship("Agent")
